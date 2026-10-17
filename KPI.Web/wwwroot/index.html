@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Çalışan KPI değerlendirme ve performans yönetimi uygulaması">
+  <meta name="theme-color" content="#08172d">
+  <title>KPI Değerlendirme</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></symbol>
+    <symbol id="i-score" viewBox="0 0 24 24"><path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6M4 4v4.6h4.6M12 7v5l3.2 2"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-2a4 4 0 0 0-3-3.9M16 2.1a4 4 0 0 1 0 7.8"/></symbol>
+    <symbol id="i-briefcase" viewBox="0 0 24 24"><path d="M9 6V4h6v2M3 7h18v13H3zM3 12h18M10 12v2h4v-2"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M5 3v3M19 3v3M3 8h18M4 5h16v16H4z"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 22V3M5 4h12l-2 4 2 4H5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 16-1 5 5-1L19 9l-4-4zM13 7l4 4"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#dashboard" aria-label="KPI Değerlendirme ana sayfa">
+        <span class="brand-mark"><span>K</span></span>
+        <span><strong>KPI</strong><small>Değerlendirme</small></span>
+      </a>
+      <nav class="nav" aria-label="Ana menü">
+        <a href="#dashboard" data-route="dashboard" data-permission="0"><svg><use href="#i-grid"/></svg><span>Gösterge Paneli</span></a>
+        <a href="#evaluation" data-route="evaluation" data-permission="1"><svg><use href="#i-score"/></svg><span>Değerlendirme Yap</span></a>
+        <a href="#history" data-route="history" data-permission="3"><svg><use href="#i-history"/></svg><span>Değerlendirmeler</span></a>
+        <span class="nav-label">Yönetim</span>
+        <a href="#employees" data-route="employees" data-permission="4"><svg><use href="#i-users"/></svg><span>Çalışanlar</span></a>
+        <a href="#professions" data-route="professions" data-permission="5"><svg><use href="#i-briefcase"/></svg><span>Meslekler</span></a>
+        <a href="#kpis" data-route="kpis" data-permission="6"><svg><use href="#i-target"/></svg><span>KPI Yönetimi</span></a>
+        <a href="#periods" data-route="periods" data-permission="7"><svg><use href="#i-calendar"/></svg><span>Dönemler</span></a>
+        <a href="#goals" data-route="goals" data-permission="8"><svg><use href="#i-flag"/></svg><span>Şirket Hedefleri</span></a>
+        <span class="nav-label admin-nav">Yapılandırma</span>
+        <a href="#authorization" data-route="authorization" data-permission="10"><svg><use href="#i-users"/></svg><span>Yetkilendirme</span></a>
+        <a href="#page-designer" data-route="page-designer" data-permission="9"><svg><use href="#i-grid"/></svg><span>Sayfa Tasarımcısı</span></a>
+        <div id="custom-page-nav"></div>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="status-dot"></span>
+        <span><strong>Sistem bağlantısı</strong><small id="connection-state">Kontrol ediliyor</small></span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-button menu-button" id="menu-button" aria-label="Menüyü aç"><svg><use href="#i-menu"/></svg></button>
+        <div class="breadcrumb"><span>Performans Yönetimi</span><strong id="page-name">Gösterge Paneli</strong></div>
+        <div class="top-actions">
+          <span class="date-chip" id="today"></span>
+          <button class="icon-button" aria-label="Bildirimler"><svg><use href="#i-bell"/></svg></button>
+          <button class="avatar" id="user-menu" aria-label="Kullanıcı menüsü">YK</button>
+        </div>
+      </header>
+      <section class="content" id="app" tabindex="-1"></section>
+    </main>
+  </div>
+
+  <div class="mobile-overlay" id="mobile-overlay"></div>
+  <section class="login-screen" id="login-screen" hidden>
+    <form class="login-card" id="login-form">
+      <span class="brand-mark"><span>K</span></span>
+      <div><h1>KPI Değerlendirme</h1><p>Yetkili hesabınızla devam edin.</p></div>
+      <label>Kullanıcı adı<input class="input" name="userName" value="admin" autocomplete="username" required></label>
+      <label>Parola<input class="input" name="password" type="password" value="KpiAdmin!2026" autocomplete="current-password" required></label>
+      <button class="button primary" type="submit">Giriş yap</button>
+      <p class="login-error" id="login-error"></p>
+    </form>
+  </section>
+  <dialog class="dialog" id="dialog"><div id="dialog-content"></div></dialog>
+  <div class="toast-region" id="toasts" aria-live="polite"></div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+using KpiEvaluation.Domain;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace KpiEvaluation.Infrastructure;
+
+public sealed class ProfessionConfiguration : IEntityTypeConfiguration<Profession>
+{
+    public void Configure(EntityTypeBuilder<Profession> b) { b.ToTable("profession"); b.HasKey(x=>x.Id); b.Property(x=>x.Name).HasMaxLength(100).IsRequired(); b.Property(x=>x.IsActive).HasDefaultValue(true); b.Property(x=>x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()"); b.HasIndex(x=>x.Name).IsUnique(); }
+}
+public sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
+{
+    public void Configure(EntityTypeBuilder<Employee> b) { b.ToTable("employee"); b.HasKey(x=>x.Id); b.Property(x=>x.FullName).HasMaxLength(200).IsRequired(); b.Property(x=>x.IsActive).HasDefaultValue(true); b.Property(x=>x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()"); b.HasIndex(x=>x.FullName); b.HasOne(x=>x.Profession).WithMany(x=>x.Employees).HasForeignKey(x=>x.ProfessionId).OnDelete(DeleteBehavior.Restrict); b.HasOne(x=>x.FirstManagerUser).WithMany().HasForeignKey(x=>x.FirstManagerUserId).OnDelete(DeleteBehavior.Restrict); b.HasOne(x=>x.SecondManagerUser).WithMany().HasForeignKey(x=>x.SecondManagerUserId).OnDelete(DeleteBehavior.Restrict); }
+}
+public sealed class KpiCriterionConfiguration : IEntityTypeConfiguration<KpiCriterion>
+{
+    public void Configure(EntityTypeBuilder<KpiCriterion> b) { b.ToTable("kpi_criterion", t=>{t.HasCheckConstraint("ck_kpi_scope", "([IsCommon] = 1 AND [ProfessionId] IS NULL) OR ([IsCommon] = 0 AND [ProfessionId] IS NOT NULL)");t.HasCheckConstraint("ck_kpi_order", "[DisplayOrder] > 0");t.HasCheckConstraint("ck_kpi_weight", "[WeightPercent] BETWEEN 0 AND 100");t.HasCheckConstraint("ck_kpi_validity", "[ValidTo] IS NULL OR [ValidFrom] IS NULL OR [ValidTo] >= [ValidFrom]");}); b.HasKey(x=>x.Id); b.Property(x=>x.Title).HasMaxLength(1000).IsRequired(); b.Property(x=>x.Description).HasMaxLength(2000); b.Property(x=>x.Category).HasMaxLength(150); b.Property(x=>x.Unit).HasMaxLength(50); b.Property(x=>x.TargetValue).HasPrecision(18,4); b.Property(x=>x.WeightPercent).HasPrecision(5,2); b.Property(x=>x.DataSource).HasMaxLength(500); b.Property(x=>x.IsActive).HasDefaultValue(true); b.Property(x=>x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()"); b.HasIndex(x=>new{x.ProfessionId,x.IsCommon,x.IsActive}); b.HasOne(x=>x.Profession).WithMany(x=>x.KpiCriteria).HasForeignKey(x=>x.ProfessionId).OnDelete(DeleteBehavior.Restrict); b.HasOne(x=>x.CompanyGoal).WithMany(x=>x.KpiCriteria).HasForeignKey(x=>x.CompanyGoalId).OnDelete(DeleteBehavior.SetNull); }
+}
+public sealed class CompanyGoalConfiguration : IEntityTypeConfiguration<CompanyGoal>
+{
+    public void Configure(EntityTypeBuilder<CompanyGoal> b) { b.ToTable("company_goal", t=>t.HasCheckConstraint("ck_company_goal_priority", "[Priority] > 0")); b.HasKey(x=>x.Id); b.Property(x=>x.Name).HasMaxLength(250).IsRequired(); b.Property(x=>x.Description).HasMaxLength(2000); b.Property(x=>x.IsActive).HasDefaultValue(true); b.Property(x=>x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()"); b.HasIndex(x=>new{x.Name,x.EvaluationPeriodId}).IsUnique(); b.HasOne(x=>x.EvaluationPeriod).WithMany(x=>x.CompanyGoals).HasForeignKey(x=>x.EvaluationPeriodId).OnDelete(DeleteBehavior.Restrict); }
+}
+public sealed class EvaluationPeriodConfiguration : IEntityTypeConfiguration<EvaluationPeriod>
+{
+    public void Configure(EntityTypeBuilder<EvaluationPeriod> b) { b.ToTable("evaluation_period",t=>t.HasCheckConstraint("ck_period_dates", "[EndDate] >= [StartDate]")); b.HasKey(x=>x.Id); b.Property(x=>x.Name).HasMaxLength(100).IsRequired(); b.Property(x=>x.IsActive).HasDefaultValue(true); b.Property(x=>x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()"); b.HasIndex(x=>x.Name).IsUnique(); }
+}
+public sealed class EmployeeEvaluationConfiguration : IEntityTypeConfiguration<EmployeeEvaluation>
+{
+    public void Configure(EntityTypeBuilder<EmployeeEvaluation> b) { b.ToTable("employee_evaluation", t=>{t.HasCheckConstraint("ck_average_score", "[AverageScore] BETWEEN 1 AND 5");t.HasCheckConstraint("ck_weighted_score", "[WeightedScore] BETWEEN 1 AND 5");t.HasCheckConstraint("ck_total_score", "[TotalScore] > 0");t.HasCheckConstraint("ck_maximum_score", "[MaximumScore] > 0");t.HasCheckConstraint("ck_score_percentage", "[ScorePercentage] BETWEEN 0 AND 100");}); b.HasKey(x=>x.Id); b.Property(x=>x.EmployeeNameSnapshot).HasMaxLength(200).IsRequired(); b.Property(x=>x.ProfessionNameSnapshot).HasMaxLength(100).IsRequired(); b.Property(x=>x.PeriodNameSnapshot).HasMaxLength(100).IsRequired(); b.Property(x=>x.AverageScore).HasPrecision(4,2); b.Property(x=>x.WeightedScore).HasPrecision(4,2); b.Property(x=>x.ScorePercentage).HasPrecision(5,2); b.Property(x=>x.GeneralNote).HasMaxLength(2000); b.Property(x=>x.ManagerFeedback).HasMaxLength(2000); b.Property(x=>x.EmployeeFeedback).HasMaxLength(2000); b.Property(x=>x.DevelopmentAction).HasMaxLength(2000); b.Property(x=>x.EvaluationDate).HasDefaultValueSql("SYSUTCDATETIME()"); b.Property(x=>x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()"); b.HasIndex(x=>new{x.EmployeeId,x.EvaluationPeriodId}).IsUnique(); b.HasIndex(x=>x.ProfessionIdSnapshot); b.HasIndex(x=>x.EvaluatorUserId); b.HasOne(x=>x.Employee).WithMany(x=>x.Evaluations).HasForeignKey(x=>x.EmployeeId).OnDelete(DeleteBehavior.Restrict); b.HasOne(x=>x.EvaluationPeriod).WithMany(x=>x.Evaluations).HasForeignKey(x=>x.EvaluationPeriodId).OnDelete(DeleteBehavior.Restrict); b.HasOne(x=>x.EvaluatorUser).WithMany().HasForeignKey(x=>x.EvaluatorUserId).OnDelete(DeleteBehavior.Restrict); b.HasOne(x=>x.ApprovedByUser).WithMany().HasForeignKey(x=>x.ApprovedByUserId).OnDelete(DeleteBehavior.Restrict); }
+}
+public sealed class EmployeeEvaluationDetailConfiguration : IEntityTypeConfiguration<EmployeeEvaluationDetail>
+{
+    public void Configure(EntityTypeBuilder<EmployeeEvaluationDetail> b) { b.ToTable("employee_evaluation_detail",t=>t.HasCheckConstraint("ck_score", "[Score] BETWEEN 1 AND 5")); b.HasKey(x=>x.Id); b.Property(x=>x.KpiTitleSnapshot).HasMaxLength(1000).IsRequired(); b.Property(x=>x.Note).HasMaxLength(2000); b.Property(x=>x.ActualValue).HasPrecision(18,4); b.Property(x=>x.WeightPercentSnapshot).HasPrecision(5,2); b.Property(x=>x.TargetValueSnapshot).HasPrecision(18,4); b.Property(x=>x.UnitSnapshot).HasMaxLength(50); b.Property(x=>x.WeightedScore).HasPrecision(8,4); b.Property(x=>x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()"); b.HasIndex(x=>new{x.EmployeeEvaluationId,x.KpiCriterionId}).IsUnique(); b.HasOne(x=>x.EmployeeEvaluation).WithMany(x=>x.Details).HasForeignKey(x=>x.EmployeeEvaluationId).OnDelete(DeleteBehavior.Cascade); b.HasOne(x=>x.KpiCriterion).WithMany(x=>x.EvaluationDetails).HasForeignKey(x=>x.KpiCriterionId).OnDelete(DeleteBehavior.Restrict); }
+}
