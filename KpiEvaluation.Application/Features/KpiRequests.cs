@@ -9,7 +9,7 @@ public sealed record GetDashboardQuery(int? PeriodId, int? EvaluatorUserId = nul
 }
 public sealed record GetEmployeesQuery(bool ActiveOnly) : IRequest<IReadOnlyList<EmployeeDto>>, IAnyAuthorizedRequest
 {
-    public IReadOnlyCollection<AppPermission> Permissions => [AppPermission.EmployeeManage, AppPermission.EvaluationCreate, AppPermission.EvaluationHistory];
+    public IReadOnlyCollection<AppPermission> Permissions => [AppPermission.EmployeeManage, AppPermission.EvaluationCreate, AppPermission.EvaluationHistory, AppPermission.LeaveView];
 }
 public sealed record GetProfessionLookupsQuery : IRequest<IReadOnlyList<LookupDto>>, IAnyAuthorizedRequest
 {
@@ -22,7 +22,7 @@ public sealed record SaveEmployeeCommand(int? Id, string FullName, int Professio
 
 public sealed record GetProfessionsQuery : IRequest<IReadOnlyList<ProfessionDto>>, IAnyAuthorizedRequest
 {
-    public IReadOnlyCollection<AppPermission> Permissions => [AppPermission.ProfessionManage, AppPermission.KpiManage, AppPermission.EvaluationCreate, AppPermission.EvaluationHistory];
+    public IReadOnlyCollection<AppPermission> Permissions => [AppPermission.ProfessionManage, AppPermission.KpiManage, AppPermission.EvaluationCreate, AppPermission.EvaluationHistory, AppPermission.LeaveView];
 }
 public sealed record SaveProfessionCommand(int? Id, string Name, bool IsActive) : IRequest<ProfessionDto>, IAuthorizedRequest
 {
@@ -79,7 +79,8 @@ public sealed record SaveKpiCommand(
     bool IsMeasurable,
     bool IsAchievable,
     bool IsRelevant,
-    bool IsTimeBound) : IRequest<KpiDto>, IAuthorizedRequest
+    bool IsTimeBound,
+    IReadOnlyList<int>? ProfessionIds = null) : IRequest<KpiDto>, IAuthorizedRequest
 {
     public AppPermission Permission => AppPermission.KpiManage;
 }
@@ -97,9 +98,10 @@ public sealed record GetEvaluationForEditQuery(long Id) : IRequest<EvaluationEdi
 {
     public AppPermission Permission => AppPermission.EvaluationCreate;
 }
-public sealed record SaveEvaluationCommand(EvaluationSaveInput Input) : IRequest, IAuthorizedRequest
+public sealed record SaveEvaluationCommand(EvaluationSaveInput Input) : IRequest, IAllAuthorizedRequest
 {
-    public AppPermission Permission => AppPermission.EvaluationCreate;
+    public IReadOnlyCollection<AppPermission> Permissions => Input.Status == EvaluationStatus.Draft
+        ? [AppPermission.EvaluationCreate] : [AppPermission.EvaluationCreate, AppPermission.EvaluationApprove];
 }
 public sealed record UpdateEvaluationCommand(
     long Id,
@@ -109,9 +111,10 @@ public sealed record UpdateEvaluationCommand(
     string? ManagerFeedback,
     string? EmployeeFeedback,
     string? DevelopmentAction,
-    DateOnly? FollowUpDate) : IRequest, IAuthorizedRequest
+    DateOnly? FollowUpDate) : IRequest, IAllAuthorizedRequest
 {
-    public AppPermission Permission => AppPermission.EvaluationCreate;
+    public IReadOnlyCollection<AppPermission> Permissions => Status == EvaluationStatus.Draft
+        ? [AppPermission.EvaluationCreate] : [AppPermission.EvaluationCreate, AppPermission.EvaluationApprove];
 }
 public sealed record ApproveEvaluationCommand(long Id) : IRequest, IAuthorizedRequest
 {

@@ -40,6 +40,15 @@ Geçici parola ilk girişte değiştirilmek zorundadır. Dağıtım ortamında `
 
 Yönetici, Yetkilendirme ekranından yeni rol oluşturabilir, rolü aktif/pasif yapabilir, role izin dağıtabilir ve kullanıcı hesaplarına rol atayabilir. Sistem rol kodları uygulamadaki veri kapsamı davranışlarını korumak için değiştirilemez.
 
+## Değerlendirme ve izin takibi
+
+- KPI soruları **Herkes** seçeneğiyle tüm çalışanlara veya birden fazla **ekibe (meslek grubuna)** atanabilir. Mevcut tek meslek seçimleri korunur.
+- **Geçici Kaydet**, eksik puanları da saklar. Değerlendirmeler ekranındaki düzenleme işlemiyle devam edilir.
+- **Kalıcı Kaydet**, oluşturma ve onaylama yetkisiyle kaydı doğrudan onaylar; ayrıca onaya gönderme adımı yoktur. Kalıcı kayıt değiştirilemez.
+- Yetkilendirme ekranında **İzin takibi · Görüntüle** ve **İzin takibi · Kayıt yönetimi** izinleri rollere atanır. Yalnızca görüntüleme yetkisi olan kişiler kayıt değiştiremez. Yönetim için iki izin de gereklidir.
+- İzin takibinde çalışan, tarih aralığı, izin türü ve açıklama tutulur; kayıtlar silinmeden pasife alınabilir. İzin bakiyesi veya iş günü hesabı yapılmaz.
+- İzin Excel'i yükleme ve indirme, dosya formatı netleştirildikten sonra eklenecektir.
+
 ## Mimari
 
 ```text

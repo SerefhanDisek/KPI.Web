@@ -11,7 +11,8 @@ public sealed record KpiDto(int Id, string Title, string? Description, int? Prof
     KpiMeasurementType MeasurementType = KpiMeasurementType.ManualScore, string? Unit = null, decimal? TargetValue = null,
     KpiTargetDirection TargetDirection = KpiTargetDirection.AtLeast, decimal WeightPercent = 0, string? DataSource = null,
     KpiReviewFrequency ReviewFrequency = KpiReviewFrequency.SemiAnnual, DateOnly? ValidFrom = null, DateOnly? ValidTo = null,
-    bool IsSpecific = false, bool IsMeasurable = false, bool IsAchievable = false, bool IsRelevant = false, bool IsTimeBound = false)
+    bool IsSpecific = false, bool IsMeasurable = false, bool IsAchievable = false, bool IsRelevant = false, bool IsTimeBound = false,
+    IReadOnlyList<LookupDto>? Professions = null)
 {
     public string MeasurementName => MeasurementType switch { KpiMeasurementType.ManualScore=>"Manuel 1-5",KpiMeasurementType.Percentage=>"Yüzde",KpiMeasurementType.Count=>"Adet",KpiMeasurementType.Duration=>"Süre",_=>"Sayısal" };
 }
@@ -22,7 +23,8 @@ public sealed record EvaluationSaveInput(int EmployeeId,int EvaluationPeriodId,s
     EvaluationStatus Status=EvaluationStatus.Completed,string? ManagerFeedback=null,string? EmployeeFeedback=null,string? DevelopmentAction=null,DateOnly? FollowUpDate=null);
 public sealed record EvaluationSummaryDto(long Id, string EmployeeName, string ProfessionName, string PeriodName, int TotalScore, decimal AverageScore, DateTime EvaluationDate, string? GeneralNote,
     decimal WeightedScore=0,EvaluationStatus Status=EvaluationStatus.Completed,string? ManagerFeedback=null,string? EmployeeFeedback=null,string? DevelopmentAction=null,DateOnly? FollowUpDate=null,
-    int MaximumScore=0,decimal ScorePercentage=0,int? EvaluatorUserId=null,string? EvaluatorName=null,DateTime? ApprovedAt=null)
+    int MaximumScore=0,decimal ScorePercentage=0,int? EvaluatorUserId=null,string? EvaluatorName=null,DateTime? ApprovedAt=null,
+    bool CanEdit=false,bool CanApprove=false)
 {
     public string StatusName => Status switch { EvaluationStatus.Draft=>"Taslak",EvaluationStatus.Completed=>"Tamamlandı",EvaluationStatus.Shared=>"Çalışana İletildi",EvaluationStatus.EmployeeCommented=>"Çalışan Görüşü Alındı",_=>"Onaylandı" };
 }
@@ -62,7 +64,7 @@ public interface IKpiService
         string? unit = null, decimal? targetValue = null, KpiTargetDirection targetDirection = KpiTargetDirection.AtLeast,
         decimal weightPercent = 0, string? dataSource = null, KpiReviewFrequency reviewFrequency = KpiReviewFrequency.SemiAnnual,
         DateOnly? validFrom = null, DateOnly? validTo = null, bool isSpecific = false, bool isMeasurable = false,
-        bool isAchievable = false, bool isRelevant = false, bool isTimeBound = false);
+        bool isAchievable = false, bool isRelevant = false, bool isTimeBound = false, IReadOnlyList<int>? professionIds = null);
 }
 public interface ICompanyGoalService
 {

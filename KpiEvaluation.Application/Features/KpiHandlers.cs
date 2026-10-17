@@ -82,7 +82,7 @@ public sealed class SaveKpiHandler(IKpiService service) : IRequestHandler<SaveKp
             request.DisplayOrder, request.IsActive, cancellationToken, request.Category, request.CompanyGoalId,
             request.MeasurementType, request.Unit, request.TargetValue, request.TargetDirection, request.WeightPercent,
             request.DataSource, request.ReviewFrequency, request.ValidFrom, request.ValidTo, request.IsSpecific,
-            request.IsMeasurable, request.IsAchievable, request.IsRelevant, request.IsTimeBound);
+            request.IsMeasurable, request.IsAchievable, request.IsRelevant, request.IsTimeBound, request.ProfessionIds);
 }
 
 public sealed class GetEvaluationHistoryHandler(IEvaluationService service, ICurrentUser currentUser)

@@ -18,6 +18,11 @@ public interface IAnyAuthorizedRequest
     IReadOnlyCollection<AppPermission> Permissions { get; }
 }
 
+public interface IAllAuthorizedRequest
+{
+    IReadOnlyCollection<AppPermission> Permissions { get; }
+}
+
 public sealed record AuthenticatedUserDto(int Id, string UserName, string DisplayName, int RoleId, string RoleName, string RoleCode, int? EmployeeId,
     bool MustChangePassword, IReadOnlyList<AppPermission> Permissions);
 public sealed record UserDto(int Id, string UserName, string DisplayName, int RoleId, string RoleName, string RoleCode, int? EmployeeId,

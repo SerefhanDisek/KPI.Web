@@ -16,5 +16,6 @@ public sealed class KpiDbContext(DbContextOptions<KpiDbContext> options) : DbCon
     public DbSet<AppRole> AppRoles => Set<AppRole>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<PageDefinition> PageDefinitions => Set<PageDefinition>();
+    public DbSet<EmployeeLeave> EmployeeLeaves => Set<EmployeeLeave>();
     protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.ApplyConfigurationsFromAssembly(typeof(KpiDbContext).Assembly);
 }

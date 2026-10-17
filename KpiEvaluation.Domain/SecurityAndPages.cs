@@ -21,7 +21,9 @@ public enum AppPermission
     PeriodManage = 7,
     GoalManage = 8,
     PageDesignerManage = 9,
-    AuthorizationManage = 10
+    AuthorizationManage = 10,
+    LeaveView = 11,
+    LeaveManage = 12
 }
 
 public sealed class AppRole

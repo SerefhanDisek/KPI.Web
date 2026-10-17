@@ -6,7 +6,7 @@ const statusDot = document.querySelector('.status-dot');
 const titles = {
   dashboard: 'Gösterge Paneli', evaluation: 'Değerlendirme Yap', history: 'Değerlendirmeler',
   employees: 'Çalışanlar', professions: 'Meslekler', kpis: 'KPI Yönetimi', periods: 'Dönemler', goals: 'Şirket Hedefleri',
-  authorization: 'Yetkilendirme', 'page-designer': 'Sayfa Tasarımcısı'
+  authorization: 'Yetkilendirme', 'page-designer': 'Sayfa Tasarımcısı', leaves: 'İzin Takibi'
 };
 const state = { periods: [], professions: [], employees: [], goals: [], evaluationItems: [], user: null, pages: [] };
 
@@ -64,10 +64,14 @@ function openDialog(title, body, onSubmit, wide = false) {
   dialogContent.querySelectorAll('[data-close]').forEach(x => x.onclick = () => dialog.close());
   dialogContent.querySelector('form').onsubmit = async event => {
     event.preventDefault();
-    const submit = event.submitter;
-    submit.disabled = true;
-    try { await onSubmit(new FormData(event.currentTarget)); dialog.close(); }
-    catch (error) { toast(error.message, 'error'); submit.disabled = false; }
+    const form = event.currentTarget;
+    if (form.dataset.saving === 'true') return;
+    form.dataset.saving = 'true';
+    const submits = [...form.querySelectorAll('[type="submit"]')];
+    submits.forEach(x => x.disabled = true);
+    try { await onSubmit(new FormData(form)); dialog.close(); }
+    catch (error) { toast(error.message, 'error'); }
+    finally { form.dataset.saving = 'false'; submits.forEach(x => x.disabled = false); }
   };
   dialog.showModal();
 }
@@ -232,25 +236,25 @@ async function kpisPage() {
 function renderKpis(rows) {
   app.innerHTML = `${pageHead('KPI Yönetimi','Ortak ve mesleki ölçütleri, hedefleri ve ağırlıkları yönetin.',`<button class="button primary" id="add-kpi">${icon('plus')}KPI ekle</button>`)}<section class="card"><div class="card-body"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="kpi-search" placeholder="KPI veya kategori ara"></div><select class="filter-select" id="kpi-profession">${optionList(state.professions, '', 'Tüm meslekler')}</select></div></div><div class="table-wrap"><table class="table"><thead><tr><th>KPI</th><th>Kapsam</th><th>Ölçüm</th><th>Ağırlık</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="kpi-rows">${kpiRows(rows)}</tbody></table></div></section>`;
   document.querySelector('#add-kpi').onclick = () => kpiEditor();
-  const apply = () => { const term = document.querySelector('#kpi-search').value.toLocaleLowerCase('tr-TR'); const profession = document.querySelector('#kpi-profession').value; const filtered = state.kpis.filter(x => (!term || `${x.title} ${x.category || ''}`.toLocaleLowerCase('tr-TR').includes(term)) && (!profession || String(x.professionId) === profession)); document.querySelector('#kpi-rows').innerHTML = kpiRows(filtered); bindKpiActions(); };
+  const apply = () => { const term = document.querySelector('#kpi-search').value.toLocaleLowerCase('tr-TR'); const profession = document.querySelector('#kpi-profession').value; const filtered = state.kpis.filter(x => (!term || `${x.title} ${x.category || ''}`.toLocaleLowerCase('tr-TR').includes(term)) && (!profession || (String(x.professionId) === profession || x.professions?.some(p => String(p.id) === profession)))); document.querySelector('#kpi-rows').innerHTML = kpiRows(filtered); bindKpiActions(); };
   document.querySelector('#kpi-search').oninput = apply; document.querySelector('#kpi-profession').onchange = apply; bindKpiActions();
 }
 
 function kpiRows(rows) {
-  return rows.map(row => `<tr><td><strong>${esc(row.title)}</strong><br><small>${esc(row.category || 'Kategorisiz')}</small></td><td>${row.isCommon ? '<span class="badge info">Ortak</span>' : esc(row.professionName || '—')}</td><td>${esc(row.measurementName)}</td><td>${formatNumber(row.weightPercent)}%</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td><button class="row-action" data-kpi="${row.id}" aria-label="Düzenle">${icon('edit')}</button></td></tr>`).join('');
+  return rows.map(row => `<tr><td><strong>${esc(row.title)}</strong><br><small>${esc(row.category || 'Kategorisiz')}</small></td><td>${row.isCommon ? '<span class="badge info">Herkes</span>' : esc(row.professions?.length ? row.professions.map(x => x.name).join(', ') : row.professionName || '—')}</td><td>${esc(row.measurementName)}</td><td>${formatNumber(row.weightPercent)}%</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td><button class="row-action" data-kpi="${row.id}" aria-label="Düzenle">${icon('edit')}</button></td></tr>`).join('');
 }
 
 function bindKpiActions() { document.querySelectorAll('[data-kpi]').forEach(button => button.onclick = () => kpiEditor(state.kpis.find(x => x.id === Number(button.dataset.kpi)))); }
 
 function kpiEditor(row = {}) {
   const measurement = row.measurementType ?? 0;
-  openDialog(row.id ? 'KPI ölçütünü düzenle' : 'Yeni KPI ölçütü', `<div class="form-grid"><div class="field full"><label>KPI başlığı</label><input class="input" name="title" value="${esc(row.title)}" required maxlength="1000"></div><div class="field full"><label>Açıklama</label><textarea class="textarea" name="description">${esc(row.description)}</textarea></div><div class="field"><label>Kategori</label><input class="input" name="category" value="${esc(row.category)}"></div><div class="field"><label>Şirket hedefi</label><select class="filter-select" name="companyGoalId">${optionList(state.goals, row.companyGoalId, 'Hedef seçilmedi')}</select></div><label class="check-row"><input type="checkbox" name="isCommon" id="kpi-common" ${row.isCommon ? 'checked' : ''}> Ortak KPI</label><div class="field"><label>Meslek</label><select class="filter-select" name="professionId" id="kpi-profession-field">${optionList(state.professions, row.professionId)}</select></div><div class="field"><label>Ölçüm türü</label><select class="filter-select" name="measurementType">${['Manuel 1–5','Yüzde','Adet','Süre','Sayısal'].map((x,i)=>`<option value="${i}" ${measurement===i?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Birim</label><input class="input" name="unit" value="${esc(row.unit)}"></div><div class="field"><label>Hedef değer</label><input class="input" type="number" step="0.01" name="targetValue" value="${row.targetValue ?? ''}"></div><div class="field"><label>Başarı yönü</label><select class="filter-select" name="targetDirection"><option value="0" ${row.targetDirection !== 1 ? 'selected':''}>En az</option><option value="1" ${row.targetDirection === 1 ? 'selected':''}>En fazla</option></select></div><div class="field"><label>Ağırlık (%)</label><input class="input" type="number" step="0.01" min="0" max="100" name="weightPercent" value="${row.weightPercent ?? 0}"></div><div class="field"><label>Sıra</label><input class="input" type="number" min="1" name="displayOrder" value="${row.displayOrder || 1}" required></div><div class="field full"><label>Veri kaynağı</label><input class="input" name="dataSource" value="${esc(row.dataSource)}"></div><label class="check-row"><input type="checkbox" name="isActive" ${row.isActive !== false ? 'checked':''}> Aktif KPI</label></div>`, async form => {
+  openDialog(row.id ? 'KPI ölçütünü düzenle' : 'Yeni KPI ölçütü', `<div class="form-grid"><div class="field full"><label>KPI başlığı</label><input class="input" name="title" value="${esc(row.title)}" required maxlength="1000"></div><div class="field full"><label>Açıklama</label><textarea class="textarea" name="description">${esc(row.description)}</textarea></div><div class="field"><label>Kategori</label><input class="input" name="category" value="${esc(row.category)}"></div><div class="field"><label>Şirket hedefi</label><select class="filter-select" name="companyGoalId">${optionList(state.goals, row.companyGoalId, 'Hedef seçilmedi')}</select></div><label class="check-row"><input type="checkbox" name="isCommon" id="kpi-common" ${row.isCommon ? 'checked' : ''}> Herkes (tüm ekipler)</label><div class="field"><label>Ekipler (meslek grupları)</label><select class="filter-select multi-select" name="professionIds" id="kpi-profession-field" multiple>${state.professions.map(x => `<option value="${x.id}" ${(row.professions?.length ? row.professions.some(p => p.id === x.id) : row.professionId === x.id) ? 'selected' : ''}>${esc(x.name)}${x.isActive ? '' : ' (Pasif)'}</option>`).join('')}</select><small>Bir veya birden fazla meslek grubu seçin; tüm ekipler için Herkes seçeneğini işaretleyin.</small></div><div class="field"><label>Ölçüm türü</label><select class="filter-select" name="measurementType">${['Manuel 1–5','Yüzde','Adet','Süre','Sayısal'].map((x,i)=>`<option value="${i}" ${measurement===i?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Birim</label><input class="input" name="unit" value="${esc(row.unit)}"></div><div class="field"><label>Hedef değer</label><input class="input" type="number" step="0.01" name="targetValue" value="${row.targetValue ?? ''}"></div><div class="field"><label>Başarı yönü</label><select class="filter-select" name="targetDirection"><option value="0" ${row.targetDirection !== 1 ? 'selected':''}>En az</option><option value="1" ${row.targetDirection === 1 ? 'selected':''}>En fazla</option></select></div><div class="field"><label>Ağırlık (%)</label><input class="input" type="number" step="0.01" min="0" max="100" name="weightPercent" value="${row.weightPercent ?? 0}"></div><div class="field"><label>Sıra</label><input class="input" type="number" min="1" name="displayOrder" value="${row.displayOrder || 1}" required></div><div class="field full"><label>Veri kaynağı</label><input class="input" name="dataSource" value="${esc(row.dataSource)}"></div><label class="check-row"><input type="checkbox" name="isActive" ${row.isActive !== false ? 'checked':''}> Aktif KPI</label></div>`, async form => {
     const isCommon = form.get('isCommon') === 'on';
-    await api('/api/kpis', { method:'POST', body:JSON.stringify({ id:row.id || null, title:form.get('title'), description:form.get('description'), professionId:isCommon ? null : Number(form.get('professionId')), isCommon, displayOrder:Number(form.get('displayOrder')), isActive:form.get('isActive') === 'on', category:form.get('category'), companyGoalId:form.get('companyGoalId') ? Number(form.get('companyGoalId')) : null, measurementType:Number(form.get('measurementType')), unit:form.get('unit'), targetValue:form.get('targetValue') ? Number(form.get('targetValue')) : null, targetDirection:Number(form.get('targetDirection')), weightPercent:Number(form.get('weightPercent')), dataSource:form.get('dataSource'), reviewFrequency:row.reviewFrequency ?? 2, validFrom:row.validFrom || null, validTo:row.validTo || null, isSpecific:row.isSpecific || false, isMeasurable:row.isMeasurable || false, isAchievable:row.isAchievable || false, isRelevant:row.isRelevant || false, isTimeBound:row.isTimeBound || false }) });
+    await api('/api/kpis', { method:'POST', body:JSON.stringify({ id:row.id || null, title:form.get('title'), description:form.get('description'), professionId:null, professionIds:isCommon ? [] : form.getAll('professionIds').map(Number), isCommon, displayOrder:Number(form.get('displayOrder')), isActive:form.get('isActive') === 'on', category:form.get('category'), companyGoalId:form.get('companyGoalId') ? Number(form.get('companyGoalId')) : null, measurementType:Number(form.get('measurementType')), unit:form.get('unit'), targetValue:form.get('targetValue') ? Number(form.get('targetValue')) : null, targetDirection:Number(form.get('targetDirection')), weightPercent:Number(form.get('weightPercent')), dataSource:form.get('dataSource'), reviewFrequency:row.reviewFrequency ?? 2, validFrom:row.validFrom || null, validTo:row.validTo || null, isSpecific:row.isSpecific || false, isMeasurable:row.isMeasurable || false, isAchievable:row.isAchievable || false, isRelevant:row.isRelevant || false, isTimeBound:row.isTimeBound || false }) });
     toast(row.id ? 'KPI güncellendi.' : 'KPI eklendi.'); await kpisPage();
   }, true);
   const common = document.querySelector('#kpi-common'); const profession = document.querySelector('#kpi-profession-field');
-  const sync = () => { profession.disabled = common.checked; profession.required = !common.checked; if (common.checked) profession.value = ''; }; common.onchange = sync; sync();
+  const sync = () => { profession.disabled = common.checked; profession.required = !common.checked; }; common.onchange = sync; sync();
 }
 
 async function evaluationPage() {
@@ -315,19 +319,52 @@ function metricScore(actual,target,direction) {
 
 function evaluationSummary() {
   const scored = state.evaluationItems.filter(x => x.score != null); const total = scored.reduce((sum,x)=>sum+x.score,0); const weight = scored.reduce((sum,x)=>sum+(x.weightPercent||0),0); const average = scored.length ? total/scored.length : 0; const weighted = weight ? scored.reduce((sum,x)=>sum+x.score*(x.weightPercent||0),0)/weight : average; const complete = state.evaluationItems.length && scored.length === state.evaluationItems.length;
-  return `<div class="score-ring" style="--value:${Math.min(100,weighted*20)}%"><div><strong>%${formatNumber(weighted*20)}</strong><small>normalize başarı</small></div></div><div class="summary-line"><span>Puanlanan</span><strong>${scored.length} / ${state.evaluationItems.length}</strong></div><div class="summary-line"><span>Toplam puan</span><strong>${total} / ${state.evaluationItems.length*5}</strong></div><div class="summary-line"><span>Ağırlıklı ortalama</span><strong>${formatNumber(weighted)} / 5</strong></div><div class="field" style="margin-top:14px"><label>Genel not</label><textarea class="textarea" id="general-note" placeholder="Değerlendirme notu"></textarea></div><div class="actions" style="margin-top:16px"><button class="button secondary" id="save-draft" ${complete?'':'disabled'}>Taslak kaydet</button><button class="button primary" id="save-evaluation" ${complete?'':'disabled'}>${icon('check')}Onaya gönder</button></div>`;
+  return `<div class="score-ring" style="--value:${Math.min(100,weighted*20)}%"><div><strong>%${formatNumber(weighted*20)}</strong><small>normalize başarı</small></div></div><div class="summary-line"><span>Puanlanan</span><strong>${scored.length} / ${state.evaluationItems.length}</strong></div><div class="summary-line"><span>Toplam puan</span><strong>${total} / ${state.evaluationItems.length*5}</strong></div><div class="summary-line"><span>Ağırlıklı ortalama</span><strong>${formatNumber(weighted)} / 5</strong></div><div class="field" style="margin-top:14px"><label>Genel not</label><textarea class="textarea" id="general-note" placeholder="Değerlendirme notu"></textarea></div><div class="actions" style="margin-top:16px"><button class="button secondary" id="save-draft" ${state.evaluationItems.length?'':'disabled'}>Geçici Kaydet</button><button class="button primary" id="save-evaluation" ${complete&&hasPermission(2)?'':'disabled'}>${icon('check')}Kalıcı Kaydet</button><small>Geçici kayıt daha sonra tamamlanabilir. Kalıcı kayıt onaylanır ve değiştirilemez.</small></div>`;
 }
 
 function updateEvaluationSummary() {
-  const summary = document.querySelector('#evaluation-summary'); if (!summary) return; const oldNote = document.querySelector('#general-note')?.value || ''; summary.innerHTML = evaluationSummary(); document.querySelector('#general-note').value = oldNote; document.querySelector('#save-evaluation').onclick = () => saveEvaluation(1); document.querySelector('#save-draft').onclick = () => saveEvaluation(0);
+  const summary = document.querySelector('#evaluation-summary'); if (!summary) return; const oldNote = document.querySelector('#general-note')?.value || ''; summary.innerHTML = evaluationSummary(); document.querySelector('#general-note').value = oldNote; document.querySelector('#save-evaluation').onclick = () => saveEvaluation(4); document.querySelector('#save-draft').onclick = () => saveEvaluation(0);
 }
 
 async function saveEvaluation(status) {
-  const employeeId = Number(document.querySelector('#eval-employee').value); const periodId = Number(document.querySelector('#eval-period').value);
+  if (state.savingEvaluation) return;
+  const employeeId = Number(document.querySelector('#eval-employee').value);
+  const periodId = Number(document.querySelector('#eval-period').value);
   if (!employeeId || !periodId) { toast('Çalışan ve dönem seçmelisiniz.','error'); return; }
-  const button = document.querySelector('#save-evaluation'); button.disabled = true;
-  try { await api('/api/evaluations',{method:'POST',body:JSON.stringify({employeeId,evaluationPeriodId:periodId,generalNote:document.querySelector('#general-note').value,status,items:state.evaluationItems.map(x=>({kpiCriterionId:x.id,score:x.score,note:x.note,actualValue:x.actualValue}))})}); toast(status === 0 ? 'Taslak kaydedildi.' : 'Değerlendirme onaya gönderildi.'); await evaluationPage(); }
-  catch(error){toast(error.message,'error');button.disabled=false;}
+  if (status === 4 && (!hasPermission(2) || state.evaluationItems.some(x => x.score == null))) { toast('Kalıcı kayıt için tüm soruları puanlamalı ve onaylama yetkisine sahip olmalısınız.','error'); return; }
+  if (status === 4 && !confirm('Kalıcı kayıt onaylanacak ve değiştirilemeyecek. Devam edilsin mi?')) return;
+  state.savingEvaluation = true;
+  document.querySelectorAll('#save-draft, #save-evaluation').forEach(x => x.disabled = true);
+  try {
+    await api('/api/evaluations',{method:'POST',body:JSON.stringify({employeeId,evaluationPeriodId:periodId,generalNote:document.querySelector('#general-note').value,status,items:state.evaluationItems.map(x=>({kpiCriterionId:x.id,score:x.score??0,note:x.note,actualValue:x.actualValue}))})});
+    toast(status === 0 ? 'Geçici kayıt saklandı. Değerlendirmeler ekranından devam edebilirsiniz.' : 'Değerlendirme kalıcı olarak kaydedildi ve onaylandı.');
+    await evaluationPage();
+  } catch(error) { toast(error.message,'error'); updateEvaluationSummary(); }
+  finally { state.savingEvaluation = false; }
+}
+
+async function editEvaluation(id) {
+  try {
+    const edit = await api(`/api/evaluations/${id}/edit`);
+    let saveStatus = 0;
+    openDialog('Değerlendirmeyi düzenle', `<div class="form-grid">${edit.items.map(x=>`<div class="field full"><label>${esc(x.kpiTitle)}</label>${x.measurementType===0?`<select class="filter-select" name="score-${x.detailId}"><option value="0">Henüz puanlanmadı</option>${[1,2,3,4,5].map(score=>`<option value="${score}" ${score===x.score?'selected':''}>${score}</option>`).join('')}</select>`:`<input class="input" type="number" step="0.01" name="actual-${x.detailId}" value="${x.actualValue??''}" placeholder="Gerçekleşen (${esc(x.unit||'değer')})"><small>Hedef: ${esc(x.targetValue)} · Puan otomatik hesaplanır.</small>`}<input class="input" name="note-${x.detailId}" value="${esc(x.note)}" placeholder="Kısa not" maxlength="2000"></div>`).join('')}<div class="field full"><label>Genel not</label><textarea class="textarea" name="generalNote" maxlength="2000">${esc(edit.generalNote)}</textarea></div></div>`, async form => {
+      const items = edit.items.map(x => {
+        const raw = form.get(`actual-${x.detailId}`);
+        const actualValue = raw === '' || raw == null ? null : Number(raw);
+        return {detailId:x.detailId, score:x.measurementType===0?Number(form.get(`score-${x.detailId}`)):metricScore(actualValue,x.targetValue,x.targetDirection)??0, actualValue, note:form.get(`note-${x.detailId}`)};
+      });
+      if (saveStatus === 4 && items.some(x=>x.score===0)) throw new Error('Kalıcı kayıt için tüm soruları puanlamalısınız.');
+      if (saveStatus === 4 && !confirm('Kalıcı kayıt onaylanacak ve değiştirilemeyecek. Devam edilsin mi?')) throw new Error('Kalıcı kayıt iptal edildi.');
+      await api(`/api/evaluations/${id}`, {method:'PUT',body:JSON.stringify({id,generalNote:form.get('generalNote'),items,status:saveStatus,managerFeedback:edit.managerFeedback,employeeFeedback:edit.employeeFeedback,developmentAction:edit.developmentAction,followUpDate:edit.followUpDate})});
+      toast(saveStatus===0?'Geçici kayıt güncellendi.':'Değerlendirme kalıcı olarak kaydedildi ve onaylandı.');
+      await historyPage();
+    }, true);
+    const footer = dialogContent.querySelector('.dialog-foot');
+    footer.innerHTML = `<button type="button" class="button secondary" id="cancel-evaluation-edit">Vazgeç</button><button type="submit" class="button secondary" id="update-draft">Geçici Kaydet</button>${hasPermission(2)?'<button type="submit" class="button primary" id="finalize-evaluation">Kalıcı Kaydet</button>':''}`;
+    footer.querySelector('#cancel-evaluation-edit').onclick = () => dialog.close();
+    footer.querySelector('#update-draft').onclick = () => { saveStatus = 0; };
+    if (hasPermission(2)) footer.querySelector('#finalize-evaluation').onclick = () => { saveStatus = 4; };
+  } catch(error) { toast(error.message,'error'); }
 }
 
 async function historyPage() {
@@ -342,16 +379,69 @@ function renderHistory(rows) {
   ['#history-employee','#history-profession','#history-period'].forEach(id=>document.querySelector(id).onchange=apply);bindHistoryActions();
 }
 
-function historyRows(rows){return rows.length?rows.map(row=>`<tr><td><div class="person"><span class="person-avatar">${initials(row.employeeName)}</span><div>${esc(row.employeeName)}<br><small>${esc(row.professionName)}</small></div></div></td><td>${esc(row.evaluatorName||'Sistem')}</td><td>${esc(row.periodName)}</td><td><span class="score ${row.scorePercentage>=80?'good':row.scorePercentage>=60?'mid':'low'}">${row.totalScore} / ${row.maximumScore}<br><small>%${formatNumber(row.scorePercentage)}</small></span></td><td>${statusBadge(row.status)}</td><td><div class="row-actions"><button class="row-action" data-history="${row.id}" aria-label="Detayı görüntüle">${icon('eye')}</button>${hasPermission(2)&&row.status!==4?`<button class="row-action" data-approve="${row.id}" aria-label="Onayla">${icon('check')}</button>`:''}</div></td></tr>`).join(''):`<tr><td colspan="6">${emptyState('Kayıt bulunamadı','Filtreleri değiştirebilirsiniz.')}</td></tr>`;}
-function bindHistoryActions(){document.querySelectorAll('[data-history]').forEach(button=>button.onclick=()=>showEvaluationDetail(Number(button.dataset.history)));document.querySelectorAll('[data-approve]').forEach(button=>button.onclick=()=>approveEvaluation(Number(button.dataset.approve)));}
+function historyRows(rows){return rows.length?rows.map(row=>`<tr><td><div class="person"><span class="person-avatar">${initials(row.employeeName)}</span><div>${esc(row.employeeName)}<br><small>${esc(row.professionName)}</small></div></div></td><td>${esc(row.evaluatorName||'Sistem')}</td><td>${esc(row.periodName)}</td><td><span class="score ${row.scorePercentage>=80?'good':row.scorePercentage>=60?'mid':'low'}">${row.totalScore} / ${row.maximumScore}<br><small>%${formatNumber(row.scorePercentage)}</small></span></td><td>${statusBadge(row.status)}</td><td><div class="row-actions"><button class="row-action" data-history="${row.id}" aria-label="Detayı görüntüle">${icon('eye')}</button>${row.canEdit?`<button class="row-action" data-edit-evaluation="${row.id}" aria-label="Değerlendirmeyi düzenle">${icon('edit')}</button>`:''}${row.canApprove?`<button class="row-action" data-approve="${row.id}" aria-label="Onayla">${icon('check')}</button>`:''}</div></td></tr>`).join(''):`<tr><td colspan="6">${emptyState('Kayıt bulunamadı','Filtreleri değiştirebilirsiniz.')}</td></tr>`;}
+function bindHistoryActions(){document.querySelectorAll('[data-edit-evaluation]').forEach(button=>button.onclick=()=>editEvaluation(Number(button.dataset.editEvaluation)));document.querySelectorAll('[data-history]').forEach(button=>button.onclick=()=>showEvaluationDetail(Number(button.dataset.history)));document.querySelectorAll('[data-approve]').forEach(button=>button.onclick=()=>approveEvaluation(Number(button.dataset.approve)));}
 async function approveEvaluation(id){try{await api(`/api/evaluations/${id}/approve`,{method:'POST'});toast('Değerlendirme onaylandı ve resmî sonuçlara eklendi.');await historyPage();}catch(error){toast(error.message,'error');}}
 
 async function showEvaluationDetail(id){
-  try { const row=state.history.find(x=>x.id===id);const details=await api(`/api/evaluations/${id}/details`); dialog.classList.add('wide');dialogContent.innerHTML=`<div class="dialog-head"><h2>Değerlendirme ayrıntısı</h2><button class="icon-button" data-close>${icon('close')}</button></div><div class="dialog-body"><div class="detail-grid"><div class="detail-box"><small>Çalışan</small><strong>${esc(row.employeeName)}</strong></div><div class="detail-box"><small>Dönem</small><strong>${esc(row.periodName)}</strong></div><div class="detail-box"><small>Ağırlıklı puan</small><strong>${formatNumber(row.weightedScore)} / 5</strong></div></div><div class="table-wrap"><table class="table"><thead><tr><th>KPI</th><th>Tür</th><th>Puan</th><th>Not</th></tr></thead><tbody>${details.map(x=>`<tr><td><strong>${esc(x.kpiTitle)}</strong></td><td>${x.isCommon?'Ortak':'Mesleki'}</td><td><span class="score">${x.score}</span></td><td>${esc(x.note||'—')}</td></tr>`).join('')}</tbody></table></div>${row.generalNote?`<div class="field" style="margin-top:18px"><label>Genel not</label><div class="detail-box">${esc(row.generalNote)}</div></div>`:''}</div><div class="dialog-foot"><button class="button secondary" data-close>Kapat</button></div>`;dialogContent.querySelectorAll('[data-close]').forEach(x=>x.onclick=()=>dialog.close());dialog.showModal(); }
+  try { const row=state.history.find(x=>x.id===id);const details=await api(`/api/evaluations/${id}/details`); dialog.classList.add('wide');dialogContent.innerHTML=`<div class="dialog-head"><h2>Değerlendirme ayrıntısı</h2><button class="icon-button" data-close>${icon('close')}</button></div><div class="dialog-body"><div class="detail-grid"><div class="detail-box"><small>Çalışan</small><strong>${esc(row.employeeName)}</strong></div><div class="detail-box"><small>Dönem</small><strong>${esc(row.periodName)}</strong></div><div class="detail-box"><small>Ağırlıklı puan</small><strong>${formatNumber(row.weightedScore)} / 5</strong></div></div><div class="table-wrap"><table class="table"><thead><tr><th>KPI</th><th>Tür</th><th>Puan</th><th>Not</th></tr></thead><tbody>${details.map(x=>`<tr><td><strong>${esc(x.kpiTitle)}</strong></td><td>${x.isCommon?'Ortak':'Mesleki'}</td><td><span class="score">${x.score || '—'}</span></td><td>${esc(x.note||'—')}</td></tr>`).join('')}</tbody></table></div>${row.generalNote?`<div class="field" style="margin-top:18px"><label>Genel not</label><div class="detail-box">${esc(row.generalNote)}</div></div>`:''}</div><div class="dialog-foot"><button class="button secondary" data-close>Kapat</button></div>`;dialogContent.querySelectorAll('[data-close]').forEach(x=>x.onclick=()=>dialog.close());dialog.showModal(); }
   catch(error){toast(error.message,'error');}
 }
 
-const permissionNames=['Gösterge paneli','Değerlendirme oluşturma','Değerlendirme onaylama','Değerlendirme geçmişi','Çalışan yönetimi','Meslek yönetimi','KPI yönetimi','Dönem yönetimi','Hedef yönetimi','Sayfa tasarımcısı','Yetkilendirme yönetimi'];
+const permissionNames=['Gösterge paneli','Değerlendirme oluşturma','Değerlendirme onaylama','Değerlendirme geçmişi','Çalışan yönetimi','Meslek yönetimi','KPI yönetimi','Dönem yönetimi','Hedef yönetimi','Sayfa tasarımcısı','Yetkilendirme yönetimi','İzin takibi · Görüntüle','İzin takibi · Kayıt yönetimi'];
+
+async function leavesPage() {
+  loading();
+  try {
+    state.leaveFilters ||= {employeeId:'', professionId:'', from:'', to:'', activeOnly:'true', page:1};
+    const query = new URLSearchParams(Object.entries(state.leaveFilters).filter(([,value])=>value!==''));
+    const [data, employees, professions] = await Promise.all([api(`/api/leaves?${query}`), api('/api/employees'), api('/api/professions')]);
+    state.leaveEmployees = employees;
+    state.leaveProfessions = professions;
+    state.leaveRows = data.items;
+    renderLeaves(data);
+  } catch(error) { showError(error, leavesPage); }
+}
+
+function renderLeaves(data) {
+  const filter = state.leaveFilters;
+  const pageCount = Math.max(1, Math.ceil(data.totalCount/data.pageSize));
+  app.innerHTML = `${pageHead('İzin Takibi','Çalışanların izin kayıtlarını tarih ve ekip bazında takip edin.',hasPermission(12)?`<button class="button primary" id="add-leave">${icon('plus')}İzin ekle</button>`:'')}
+    <section class="card"><div class="card-body"><form class="toolbar" id="leave-filters">
+      <div class="field"><label for="leave-employee">Çalışan</label><select class="filter-select" id="leave-employee" name="employeeId">${optionList(state.leaveEmployees,filter.employeeId,'Tüm çalışanlar')}</select></div>
+      <div class="field"><label for="leave-profession">Ekip (meslek grubu)</label><select class="filter-select" id="leave-profession" name="professionId">${optionList(state.leaveProfessions,filter.professionId,'Tüm ekipler')}</select></div>
+      <div class="field"><label for="leave-from">Başlangıç</label><input class="input" type="date" id="leave-from" name="from" value="${esc(filter.from)}"></div>
+      <div class="field"><label for="leave-to">Bitiş</label><input class="input" type="date" id="leave-to" name="to" value="${esc(filter.to)}"></div>
+      <div class="field"><label for="leave-active">Durum</label><select class="filter-select" id="leave-active" name="activeOnly"><option value="true" ${filter.activeOnly==='true'?'selected':''}>Aktif kayıtlar</option><option value="false" ${filter.activeOnly==='false'?'selected':''}>Tüm kayıtlar</option></select></div>
+      <button class="button secondary" type="submit">Filtrele</button></form></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Çalışan</th><th>Ekip</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Açıklama</th><th>Durum</th>${hasPermission(12)?'<th>İşlem</th>':''}</tr></thead><tbody>${data.items.length?data.items.map(row=>`<tr><td>${esc(row.employeeName)}</td><td>${esc(row.professionName)}</td><td>${esc(row.leaveType)}</td><td>${formatDate(row.startDate)}</td><td>${formatDate(row.endDate)}</td><td>${esc(row.note||'—')}</td><td><span class="badge ${row.isActive?'active':'inactive'}">${row.isActive?'Aktif':'Pasif'}</span></td>${hasPermission(12)?`<td><button class="row-action" data-leave="${row.id}" aria-label="İzin kaydını düzenle">${icon('edit')}</button></td>`:''}</tr>`).join(''):`<tr><td colspan="${hasPermission(12)?8:7}">${emptyState('İzin kaydı bulunamadı','Filtreleri değiştirebilir veya yetkiniz varsa yeni kayıt ekleyebilirsiniz.')}</td></tr>`}</tbody></table></div>
+      <div class="card-body actions"><span>${data.totalCount} kayıt · Sayfa ${data.page} / ${pageCount}</span><button class="button secondary" id="leave-previous" ${data.page>1?'':'disabled'}>Önceki</button><button class="button secondary" id="leave-next" ${data.page<pageCount?'':'disabled'}>Sonraki</button></div></section>`;
+  document.querySelector('#leave-filters').onsubmit = event => {
+    event.preventDefault();
+    state.leaveFilters = {...Object.fromEntries(new FormData(event.currentTarget)), page:1};
+    leavesPage();
+  };
+  document.querySelector('#leave-previous').onclick = () => { filter.page--; leavesPage(); };
+  document.querySelector('#leave-next').onclick = () => { filter.page++; leavesPage(); };
+  if (hasPermission(12)) document.querySelector('#add-leave').onclick = () => leaveEditor();
+  document.querySelectorAll('[data-leave]').forEach(button=>button.onclick=()=>leaveEditor(state.leaveRows.find(x=>x.id===Number(button.dataset.leave))));
+}
+
+function leaveEditor(row = {}) {
+  openDialog(row.id?'İzin kaydını düzenle':'Yeni izin kaydı', `<div class="form-grid">
+    <div class="field full"><label>Çalışan</label><select class="filter-select" name="employeeId" required>${optionList(state.leaveEmployees.filter(x=>x.isActive||x.id===row.employeeId),row.employeeId,'Çalışan seçiniz')}</select></div>
+    <div class="field"><label>Başlangıç tarihi</label><input class="input" type="date" name="startDate" value="${esc(row.startDate)}" required></div>
+    <div class="field"><label>Bitiş tarihi</label><input class="input" type="date" name="endDate" value="${esc(row.endDate)}" required></div>
+    <div class="field full"><label>İzin türü</label><input class="input" name="leaveType" value="${esc(row.leaveType)}" maxlength="100" required></div>
+    <div class="field full"><label>Açıklama</label><textarea class="textarea" name="note" maxlength="2000">${esc(row.note)}</textarea></div>
+    <label class="check-row"><input type="checkbox" name="isActive" ${row.isActive!==false?'checked':''}> Aktif kayıt</label></div>`, async form => {
+    const isActive = form.get('isActive')==='on';
+    if (row.id && row.isActive && !isActive && !confirm('Bu izin kaydı pasif yapılacak. Devam edilsin mi?')) throw new Error('İşlem iptal edildi.');
+    await api('/api/leaves',{method:'POST',body:JSON.stringify({id:row.id||null,employeeId:Number(form.get('employeeId')),startDate:form.get('startDate'),endDate:form.get('endDate'),leaveType:form.get('leaveType'),note:form.get('note'),isActive})});
+    toast('İzin kaydı kaydedildi.');
+    await leavesPage();
+  });
+}
 
 async function authorizationPage(){
   loading();
@@ -388,7 +478,7 @@ async function bootstrap(){try{await afterLogin(await api('/api/auth/me'));}catc
 document.querySelector('#login-form').onsubmit=async event=>{event.preventDefault();const loginForm=event.currentTarget;const error=document.querySelector('#login-error');error.textContent='';const button=event.submitter;button.disabled=true;try{const form=new FormData(loginForm);const user=await api('/api/auth/login',{method:'POST',body:JSON.stringify({userName:form.get('userName'),password:form.get('password')})});loginForm.reset();await afterLogin(user);}catch(ex){error.textContent=ex.message;}finally{button.disabled=false;}};
 document.querySelector('#user-menu').onclick=()=>{openDialog(state.user.displayName,`<div class="detail-grid"><div class="detail-box"><small>Kullanıcı</small><strong>${esc(state.user.userName)}</strong></div><div class="detail-box"><small>Rol</small><strong>${esc(state.user.roleName)}</strong></div></div><button type="button" class="button secondary" id="change-password">Parola değiştir</button><button type="button" class="button danger" id="logout" style="margin-left:8px">Çıkış yap</button>`,async()=>{});document.querySelector('#dialog-form .dialog-foot').remove();document.querySelector('#change-password').onclick=()=>{dialog.close();openPasswordDialog();};document.querySelector('#logout').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});dialog.close();state.user=null;location.hash='#dashboard';showLogin();};};
 
-const routes = { dashboard:dashboardPage, evaluation:evaluationPage, history:historyPage, employees:employeesPage, professions:professionsPage, kpis:kpisPage, periods:periodsPage, goals:goalsPage, authorization:authorizationPage, 'page-designer':pageDesignerPage };
+const routes = { dashboard:dashboardPage, evaluation:evaluationPage, history:historyPage, employees:employeesPage, professions:professionsPage, kpis:kpisPage, periods:periodsPage, goals:goalsPage, authorization:authorizationPage, 'page-designer':pageDesignerPage, leaves:leavesPage };
 async function navigate(){if(!state.user)return;const route=(location.hash||'#dashboard').slice(1);const custom=route.startsWith('page-')?state.pages.find(x=>`page-${x.slug}`===route):null;const page=custom?()=>renderCustomPage(custom):(routes[route]||dashboardPage);document.querySelector('#page-name').textContent=custom?.title||titles[route]||titles.dashboard;document.querySelectorAll('[data-route]').forEach(x=>x.classList.toggle('active',x.dataset.route===route));closeMenu();await page();app.focus({preventScroll:true});}
 function closeMenu(){document.querySelector('#sidebar').classList.remove('open');document.querySelector('#mobile-overlay').classList.remove('open');}
 document.querySelector('#menu-button').onclick=()=>{document.querySelector('#sidebar').classList.add('open');document.querySelector('#mobile-overlay').classList.add('open');};

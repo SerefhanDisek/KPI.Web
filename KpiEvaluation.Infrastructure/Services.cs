@@ -87,46 +87,60 @@ public sealed class KpiService(KpiDbContext db) : IKpiService
         .ThenBy(x=>x.Profession == null ? string.Empty : x.Profession.Name)
         .ThenBy(x=>x.DisplayOrder)
         .Select(x=>new KpiDto(x.Id,x.Title,x.Description,x.ProfessionId,x.Profession==null?null:x.Profession.Name,x.IsCommon,x.DisplayOrder,x.IsActive,
-            x.Category,x.CompanyGoalId,x.CompanyGoal==null?null:x.CompanyGoal.Name,x.MeasurementType,x.Unit,x.TargetValue,x.TargetDirection,x.WeightPercent,x.DataSource,x.ReviewFrequency,x.ValidFrom,x.ValidTo,x.IsSpecific,x.IsMeasurable,x.IsAchievable,x.IsRelevant,x.IsTimeBound))
+            x.Category,x.CompanyGoalId,x.CompanyGoal==null?null:x.CompanyGoal.Name,x.MeasurementType,x.Unit,x.TargetValue,x.TargetDirection,x.WeightPercent,x.DataSource,x.ReviewFrequency,x.ValidFrom,x.ValidTo,x.IsSpecific,x.IsMeasurable,x.IsAchievable,x.IsRelevant,x.IsTimeBound,
+            x.Professions.OrderBy(p=>p.Profession.Name).Select(p=>new LookupDto(p.ProfessionId,p.Profession.Name)).ToList()))
         .ToListAsync(ct);
 
     public async Task<IReadOnlyList<KpiDto>> GetForProfessionAsync(int professionId,int? evaluationPeriodId=null,CancellationToken ct=default)
     {
         EvaluationPeriod? period=evaluationPeriodId is null?null:await db.EvaluationPeriods.AsNoTracking().SingleOrDefaultAsync(x=>x.Id==evaluationPeriodId,ct);
         return await db.KpiCriteria.AsNoTracking()
-        .Where(x=>x.IsActive&&(x.IsCommon||x.ProfessionId==professionId)
+        .Where(x=>x.IsActive&&(x.IsCommon||x.ProfessionId==professionId||x.Professions.Any(p=>p.ProfessionId==professionId))
             &&(period==null||((x.ValidFrom==null||x.ValidFrom<=period.EndDate)&&(x.ValidTo==null||x.ValidTo>=period.StartDate))))
         .OrderBy(x=>x.IsCommon)
         .ThenBy(x=>x.DisplayOrder)
         .Select(x=>new KpiDto(x.Id,x.Title,x.Description,x.ProfessionId,x.Profession==null?null:x.Profession.Name,x.IsCommon,x.DisplayOrder,x.IsActive,
-            x.Category,x.CompanyGoalId,x.CompanyGoal==null?null:x.CompanyGoal.Name,x.MeasurementType,x.Unit,x.TargetValue,x.TargetDirection,x.WeightPercent,x.DataSource,x.ReviewFrequency,x.ValidFrom,x.ValidTo,x.IsSpecific,x.IsMeasurable,x.IsAchievable,x.IsRelevant,x.IsTimeBound))
+            x.Category,x.CompanyGoalId,x.CompanyGoal==null?null:x.CompanyGoal.Name,x.MeasurementType,x.Unit,x.TargetValue,x.TargetDirection,x.WeightPercent,x.DataSource,x.ReviewFrequency,x.ValidFrom,x.ValidTo,x.IsSpecific,x.IsMeasurable,x.IsAchievable,x.IsRelevant,x.IsTimeBound,
+            x.Professions.OrderBy(p=>p.Profession.Name).Select(p=>new LookupDto(p.ProfessionId,p.Profession.Name)).ToList()))
         .ToListAsync(ct);
     }
     public async Task<KpiDto> SaveAsync(int? id,string title,string? description,int? professionId,bool isCommon,int displayOrder,bool isActive,CancellationToken ct=default,
         string? category=null,int? companyGoalId=null,KpiMeasurementType measurementType=KpiMeasurementType.ManualScore,string? unit=null,decimal? targetValue=null,
         KpiTargetDirection targetDirection=KpiTargetDirection.AtLeast,decimal weightPercent=0,string? dataSource=null,KpiReviewFrequency reviewFrequency=KpiReviewFrequency.SemiAnnual,
-        DateOnly? validFrom=null,DateOnly? validTo=null,bool isSpecific=false,bool isMeasurable=false,bool isAchievable=false,bool isRelevant=false,bool isTimeBound=false)
+        DateOnly? validFrom=null,DateOnly? validTo=null,bool isSpecific=false,bool isMeasurable=false,bool isAchievable=false,bool isRelevant=false,bool isTimeBound=false,
+        IReadOnlyList<int>? professionIds=null)
     {
         title=title.Trim(); if(string.IsNullOrWhiteSpace(title)) throw new ValidationException("KPI adı boş olamaz."); if(displayOrder<1) throw new ValidationException("Sıralama 1 veya daha büyük olmalıdır.");
         if(weightPercent is < 0 or > 100) throw new ValidationException("KPI ağırlığı 0 ile 100 arasında olmalıdır.");
         if(measurementType != KpiMeasurementType.ManualScore && targetValue is null) throw new ValidationException("Sayısal KPI için hedef değer girilmelidir.");
         if(validFrom is not null && validTo is not null && validTo < validFrom) throw new ValidationException("Geçerlilik bitişi başlangıçtan önce olamaz.");
         if(companyGoalId is not null && !await db.CompanyGoals.AnyAsync(x=>x.Id==companyGoalId&&x.IsActive,ct)) throw new ValidationException("Geçerli bir şirket hedefi seçmelisiniz.");
-        if(isCommon) professionId=null; else if(professionId is null) throw new ValidationException("Mesleğe özel KPI için meslek seçmelisiniz.");
-        var commonWeight=await db.KpiCriteria.Where(x=>x.IsActive&&x.IsCommon&&x.Id!=id).SumAsync(x=>(decimal?)x.WeightPercent,ct)??0;
-        decimal scopeWeight;
-        if(isCommon)
+        var selectedIds = isCommon ? [] : (professionIds ?? (professionId is null ? [] : new[] { professionId.Value })).Distinct().Order().ToArray();
+        if (!isCommon && selectedIds.Length == 0) throw new ValidationException("En az bir ekip (meslek grubu) seçmelisiniz.");
+        if (await db.Professions.CountAsync(x => selectedIds.Contains(x.Id) && x.IsActive, ct) != selectedIds.Length)
+            throw new ValidationException("Seçilen ekiplerden biri bulunamadı veya pasif durumda.");
+        professionId = isCommon ? null : selectedIds[0];
+        if (isActive)
         {
-            var specificTotals=await db.KpiCriteria.Where(x=>x.IsActive&&!x.IsCommon&&x.Id!=id).GroupBy(x=>x.ProfessionId).Select(x=>x.Sum(y=>y.WeightPercent)).ToListAsync(ct);
-            scopeWeight=commonWeight+weightPercent+specificTotals.DefaultIfEmpty(0).Max();
+            var commonWeight=await db.KpiCriteria.Where(x=>x.IsActive&&x.IsCommon&&x.Id!=id).SumAsync(x=>(decimal?)x.WeightPercent,ct)??0;
+            var specificTotals = await db.Professions.Where(p => isCommon || selectedIds.Contains(p.Id))
+                .Select(p => db.KpiCriteria.Where(x => x.IsActive && !x.IsCommon && x.Id != id
+                    && (x.ProfessionId == p.Id || x.Professions.Any(kp => kp.ProfessionId == p.Id)))
+                    .Sum(x => (decimal?)x.WeightPercent) ?? 0).ToListAsync(ct);
+            var scopeWeight = commonWeight + weightPercent + specificTotals.DefaultIfEmpty(0).Max();
+            if(scopeWeight>100) throw new ValidationException($"Seçilen ekiplerden birinde aktif KPI ağırlıkları toplamı %{scopeWeight:0.##}. Toplam %100'ü aşamaz.");
         }
-        else scopeWeight=commonWeight+weightPercent+(await db.KpiCriteria.Where(x=>x.IsActive&&!x.IsCommon&&x.ProfessionId==professionId&&x.Id!=id).SumAsync(x=>(decimal?)x.WeightPercent,ct)??0);
-        if(isActive&&scopeWeight>100)throw new ValidationException($"Bu kapsamda aktif KPI ağırlıkları toplamı %{scopeWeight:0.##}. Toplam %100'ü aşamaz.");
         KpiCriterion entity;
         if(id is null){entity=new KpiCriterion{Title=title,Description=description?.Trim(),ProfessionId=professionId,IsCommon=isCommon,DisplayOrder=displayOrder,IsActive=isActive};db.KpiCriteria.Add(entity);}
-        else{entity=await db.KpiCriteria.FindAsync([id.Value],ct)??throw new ValidationException("KPI bulunamadı.");entity.Title=title;entity.Description=description?.Trim();entity.ProfessionId=professionId;entity.IsCommon=isCommon;entity.DisplayOrder=displayOrder;entity.IsActive=isActive;entity.UpdatedAt=DateTime.UtcNow;}
+        else{entity=await db.KpiCriteria.Include(x=>x.Professions).SingleOrDefaultAsync(x=>x.Id==id.Value,ct)??throw new ValidationException("KPI bulunamadı.");entity.Title=title;entity.Description=description?.Trim();entity.ProfessionId=professionId;entity.IsCommon=isCommon;entity.DisplayOrder=displayOrder;entity.IsActive=isActive;entity.UpdatedAt=DateTime.UtcNow;}
+        var currentIds = entity.Professions.Select(x => x.ProfessionId).ToHashSet();
+        db.RemoveRange(entity.Professions.Where(x => !selectedIds.Contains(x.ProfessionId)).ToList());
+        foreach (var selectedId in selectedIds.Where(x => !currentIds.Contains(x)))
+            entity.Professions.Add(new KpiCriterionProfession { ProfessionId = selectedId });
         entity.Category=category?.Trim();entity.CompanyGoalId=companyGoalId;entity.MeasurementType=measurementType;entity.Unit=unit?.Trim();entity.TargetValue=targetValue;entity.TargetDirection=targetDirection;entity.WeightPercent=weightPercent;entity.DataSource=dataSource?.Trim();entity.ReviewFrequency=reviewFrequency;entity.ValidFrom=validFrom;entity.ValidTo=validTo;entity.IsSpecific=isSpecific;entity.IsMeasurable=isMeasurable;entity.IsAchievable=isAchievable;entity.IsRelevant=isRelevant;entity.IsTimeBound=isTimeBound;
-        await db.SaveChangesAsync(ct); string? professionName=professionId is null?null:await db.Professions.Where(x=>x.Id==professionId).Select(x=>x.Name).SingleAsync(ct); string? goalName=companyGoalId is null?null:await db.CompanyGoals.Where(x=>x.Id==companyGoalId).Select(x=>x.Name).SingleAsync(ct); return new(entity.Id,entity.Title,entity.Description,entity.ProfessionId,professionName,entity.IsCommon,entity.DisplayOrder,entity.IsActive,entity.Category,entity.CompanyGoalId,goalName,entity.MeasurementType,entity.Unit,entity.TargetValue,entity.TargetDirection,entity.WeightPercent,entity.DataSource,entity.ReviewFrequency,entity.ValidFrom,entity.ValidTo,entity.IsSpecific,entity.IsMeasurable,entity.IsAchievable,entity.IsRelevant,entity.IsTimeBound);
+        await db.SaveChangesAsync(ct); string? professionName=professionId is null?null:await db.Professions.Where(x=>x.Id==professionId).Select(x=>x.Name).SingleAsync(ct); string? goalName=companyGoalId is null?null:await db.CompanyGoals.Where(x=>x.Id==companyGoalId).Select(x=>x.Name).SingleAsync(ct);
+        var professions = await db.Professions.AsNoTracking().Where(x => selectedIds.Contains(x.Id)).OrderBy(x => x.Name).Select(x => new LookupDto(x.Id, x.Name)).ToListAsync(ct);
+        return new(entity.Id,entity.Title,entity.Description,entity.ProfessionId,professionName,entity.IsCommon,entity.DisplayOrder,entity.IsActive,entity.Category,entity.CompanyGoalId,goalName,entity.MeasurementType,entity.Unit,entity.TargetValue,entity.TargetDirection,entity.WeightPercent,entity.DataSource,entity.ReviewFrequency,entity.ValidFrom,entity.ValidTo,entity.IsSpecific,entity.IsMeasurable,entity.IsAchievable,entity.IsRelevant,entity.IsTimeBound,professions);
     }
 }
 
@@ -145,7 +159,10 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
 {
     public async Task SaveAsync(EvaluationSaveInput input, CancellationToken ct = default, int? evaluatorUserId = null)
     {
-        ValidateScores(input.Items);
+        if (evaluatorUserId is not null && input.Status is not (EvaluationStatus.Draft or EvaluationStatus.Completed or EvaluationStatus.Approved))
+            throw new ValidationException("Geçici veya kalıcı kayıt seçmelisiniz.");
+        var isDraft = evaluatorUserId is not null && input.Status == EvaluationStatus.Draft;
+        ValidateScores(input.Items, isDraft);
         if (input.EmployeeId <= 0) throw new ValidationException("Çalışan seçmelisiniz.");
         if (input.EvaluationPeriodId <= 0) throw new ValidationException("Değerlendirme dönemi seçmelisiniz.");
         var employee = await db.Employees.AsNoTracking()
@@ -157,17 +174,18 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
             .SingleOrDefaultAsync(x => x.Id == input.EvaluationPeriodId && x.IsActive, ct)
             ?? throw new ValidationException("Aktif değerlendirme dönemi bulunamadı.");
         var criteria = await db.KpiCriteria.AsNoTracking()
-            .Where(x => x.IsActive && (x.IsCommon || x.ProfessionId == employee.ProfessionId)
+            .Where(x => x.IsActive && (x.IsCommon || x.ProfessionId == employee.ProfessionId || x.Professions.Any(p => p.ProfessionId == employee.ProfessionId))
                 && (x.ValidFrom == null || x.ValidFrom <= period.EndDate) && (x.ValidTo == null || x.ValidTo >= period.StartDate))
             .Select(x => new { x.Id, x.Title, x.IsCommon, x.DisplayOrder, x.MeasurementType, x.Unit, x.TargetValue, x.TargetDirection, x.WeightPercent }).ToListAsync(ct);
         var criteriaById = criteria.ToDictionary(x => x.Id);
-        if (input.Items.Select(x => x.KpiCriterionId).Distinct().Count() != criteria.Count
+        if (input.Items.Count != criteria.Count || input.Items.Select(x => x.KpiCriterionId).Distinct().Count() != criteria.Count
             || input.Items.Any(x => !criteriaById.ContainsKey(x.KpiCriterionId)))
             throw new ValidationException("Mesleğe ait tüm güncel KPI maddeleri puanlanmalıdır.");
         foreach(var item in input.Items)
         {
             var criterion=criteriaById[item.KpiCriterionId];
             if(criterion.MeasurementType==KpiMeasurementType.ManualScore)continue;
+            if (isDraft && item.Score == 0 && item.ActualValue is null) continue;
             if(item.ActualValue is null||criterion.TargetValue is null)throw new ValidationException($"{criterion.Title} için gerçekleşen değer girilmelidir.");
             if(item.Score!=CalculateMetricScore(item.ActualValue.Value,criterion.TargetValue.Value,criterion.TargetDirection))throw new ValidationException($"{criterion.Title} için hesaplanan puan geçersiz.");
         }
@@ -196,8 +214,9 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
                 EvaluatorUserId = evaluatorUserId,
                 GeneralNote = input.GeneralNote?.Trim(),
                 ManagerFeedback=input.ManagerFeedback?.Trim(),EmployeeFeedback=input.EmployeeFeedback?.Trim(),DevelopmentAction=input.DevelopmentAction?.Trim(),FollowUpDate=input.FollowUpDate,
-                Status=evaluatorUserId is null?EvaluationStatus.Approved:input.Status==EvaluationStatus.Draft?EvaluationStatus.Draft:EvaluationStatus.Completed,
-                ApprovedAt=evaluatorUserId is null?DateTime.UtcNow:null,
+                Status=isDraft?EvaluationStatus.Draft:EvaluationStatus.Approved,
+                ApprovedByUserId=isDraft?null:evaluatorUserId,
+                ApprovedAt=isDraft?null:DateTime.UtcNow,
                 Details = input.Items.Select(x =>
                 {
                     var criterion = criteriaById[x.KpiCriterionId];
@@ -231,8 +250,15 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
     }
 
     public async Task<IReadOnlyList<EvaluationSummaryDto>> GetHistoryAsync(int? employeeId, int? professionId, int? periodId, CancellationToken ct = default,
-        int? requesterUserId = null, int? evaluatorUserId = null) =>
-        await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId)
+        int? requesterUserId = null, int? evaluatorUserId = null)
+    {
+        var roleCode = requesterUserId is null ? null : await db.AppUsers.AsNoTracking().Where(x => x.Id == requesterUserId)
+            .Select(x => x.Role.Code).SingleOrDefaultAsync(ct);
+        var canEdit = requesterUserId is not null && await db.RolePermissions.AnyAsync(x => x.Role.Users.Any(u => u.Id == requesterUserId && u.IsActive && u.Role.IsActive)
+            && x.Permission == AppPermission.EvaluationCreate && x.IsAllowed, ct);
+        var canApprove = requesterUserId is not null && await db.RolePermissions.AnyAsync(x => x.Role.Users.Any(u => u.Id == requesterUserId && u.IsActive && u.Role.IsActive)
+            && x.Permission == AppPermission.EvaluationApprove && x.IsAllowed, ct);
+        return await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId)
             .Where(x => (employeeId == null || x.EmployeeId == employeeId)
                         && (professionId == null || x.ProfessionIdSnapshot == professionId)
                         && (periodId == null || x.EvaluationPeriodId == periodId)
@@ -240,8 +266,13 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
             .OrderByDescending(x => x.EvaluationDate)
             .Select(x => new EvaluationSummaryDto(x.Id, x.EmployeeNameSnapshot, x.ProfessionNameSnapshot,
                 x.PeriodNameSnapshot,x.TotalScore,x.AverageScore,x.EvaluationDate,x.GeneralNote,x.WeightedScore,x.Status,x.ManagerFeedback,x.EmployeeFeedback,x.DevelopmentAction,x.FollowUpDate,
-                x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt))
+                x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt,
+                canEdit && x.Status != EvaluationStatus.Approved && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator),
+                canApprove && x.Status == EvaluationStatus.Completed && (roleCode == RoleCodes.Administrator
+                    || (roleCode == RoleCodes.FirstManager && x.Employee.FirstManagerUserId == requesterUserId)
+                    || (roleCode == RoleCodes.SecondManager && x.Employee.SecondManagerUserId == requesterUserId))))
             .ToListAsync(ct);
+    }
 
     public async Task<IReadOnlyList<EvaluationDetailDto>> GetDetailsAsync(long id, CancellationToken ct = default, int? requesterUserId = null)
     {
@@ -258,8 +289,9 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
     {
         var evaluation = await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId)
             .Where(x => x.Id == evaluationId)
-            .Select(x => new { x.Id, x.GeneralNote, x.Status, x.ManagerFeedback, x.EmployeeFeedback, x.DevelopmentAction, x.FollowUpDate })
+            .Select(x => new { x.Id, x.GeneralNote, x.Status, x.ManagerFeedback, x.EmployeeFeedback, x.DevelopmentAction, x.FollowUpDate, x.EvaluatorUserId })
             .SingleOrDefaultAsync(ct) ?? throw new ValidationException("Değerlendirme bulunamadı.");
+        await EnsureEvaluationEditAccessAsync(evaluation.EvaluatorUserId, requesterUserId, evaluation.Status, ct);
         var items = await db.EmployeeEvaluationDetails.AsNoTracking()
             .Where(x => x.EmployeeEvaluationId == evaluationId)
             .OrderBy(x => x.IsCommonSnapshot).ThenBy(x => x.DisplayOrderSnapshot)
@@ -273,13 +305,18 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
     public async Task UpdateAsync(long evaluationId, string? generalNote, IReadOnlyList<EvaluationItemUpdateInput> items, CancellationToken ct = default,
         EvaluationStatus status=EvaluationStatus.Completed,string? managerFeedback=null,string? employeeFeedback=null,string? developmentAction=null,DateOnly? followUpDate=null,int? requesterUserId=null)
     {
-        if (items.Count == 0 || items.Any(x => x.Score is < 1 or > 5))
+        if (requesterUserId is not null && status is not (EvaluationStatus.Draft or EvaluationStatus.Completed or EvaluationStatus.Approved))
+            throw new ValidationException("Geçici veya kalıcı kayıt seçmelisiniz.");
+        var isDraft = requesterUserId is not null && status == EvaluationStatus.Draft;
+        if (items.Count == 0 || items.Any(x => x.Score < (isDraft ? 0 : 1) || x.Score > 5))
             throw new ValidationException("Bütün KPI maddeleri 1 ile 5 arasında puanlanmalıdır.");
         var evaluation = await db.EmployeeEvaluations.Include(x => x.Details)
             .SingleOrDefaultAsync(x => x.Id == evaluationId, ct)
             ?? throw new ValidationException("Değerlendirme bulunamadı.");
         if (!await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId).AnyAsync(x => x.Id == evaluationId, ct)) throw new AuthorizationException();
-        if (requesterUserId is not null && evaluation.Status == EvaluationStatus.Approved) throw new ValidationException("Onaylanmış değerlendirme değiştirilemez.");
+        await EnsureEvaluationEditAccessAsync(evaluation.EvaluatorUserId, requesterUserId, evaluation.Status, ct);
+        if (items.Select(x => x.DetailId).Distinct().Count() != items.Count)
+            throw new ValidationException("Değerlendirme maddeleri yinelenemez.");
         var updates = items.ToDictionary(x => x.DetailId);
         if (updates.Count != evaluation.Details.Count || evaluation.Details.Any(x => !updates.ContainsKey(x.Id)))
             throw new ValidationException("Değerlendirme maddeleri güncel kayıtla eşleşmiyor.");
@@ -288,8 +325,11 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
             var update = updates[detail.Id];
             if(detail.MeasurementTypeSnapshot!=KpiMeasurementType.ManualScore)
             {
-                if(update.ActualValue is null||detail.TargetValueSnapshot is null)throw new ValidationException($"{detail.KpiTitleSnapshot} için gerçekleşen değer girilmelidir.");
-                if(update.Score!=CalculateMetricScore(update.ActualValue.Value,detail.TargetValueSnapshot.Value,detail.TargetDirectionSnapshot))throw new ValidationException($"{detail.KpiTitleSnapshot} için hesaplanan puan geçersiz.");
+                if (!(isDraft && update.Score == 0 && update.ActualValue is null))
+                {
+                    if(update.ActualValue is null||detail.TargetValueSnapshot is null)throw new ValidationException($"{detail.KpiTitleSnapshot} için gerçekleşen değer girilmelidir.");
+                    if(update.Score!=CalculateMetricScore(update.ActualValue.Value,detail.TargetValueSnapshot.Value,detail.TargetDirectionSnapshot))throw new ValidationException($"{detail.KpiTitleSnapshot} için hesaplanan puan geçersiz.");
+                }
             }
             detail.Score = update.Score;
             detail.ActualValue = update.ActualValue;
@@ -306,24 +346,46 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
         evaluation.ScorePercentage = Math.Round(evaluation.WeightedScore * 20, 2);
         foreach (var detail in evaluation.Details)
             detail.WeightedScore = weightTotal > 0 ? Math.Round(detail.Score * detail.WeightPercentSnapshot / weightTotal, 4) : Math.Round((decimal)detail.Score / evaluation.Details.Count, 4);
-        evaluation.Status=requesterUserId is null?EvaluationStatus.Approved:status==EvaluationStatus.Draft?EvaluationStatus.Draft:EvaluationStatus.Completed;evaluation.ManagerFeedback=managerFeedback?.Trim();evaluation.EmployeeFeedback=employeeFeedback?.Trim();evaluation.DevelopmentAction=developmentAction?.Trim();evaluation.FollowUpDate=followUpDate;
+        evaluation.Status=isDraft?EvaluationStatus.Draft:EvaluationStatus.Approved;
+        evaluation.ApprovedByUserId=isDraft?null:requesterUserId;
+        evaluation.ApprovedAt=isDraft?null:DateTime.UtcNow;
+        evaluation.ManagerFeedback=managerFeedback?.Trim();evaluation.EmployeeFeedback=employeeFeedback?.Trim();evaluation.DevelopmentAction=developmentAction?.Trim();evaluation.FollowUpDate=followUpDate;
         evaluation.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        await SaveEvaluationChangesAsync(ct);
     }
 
     public async Task ApproveAsync(long evaluationId, int approverUserId, CancellationToken ct = default)
     {
-        var evaluation = await db.EmployeeEvaluations.SingleOrDefaultAsync(x => x.Id == evaluationId, ct)
+        var evaluation = await db.EmployeeEvaluations.Include(x => x.Details).SingleOrDefaultAsync(x => x.Id == evaluationId, ct)
             ?? throw new ValidationException("Değerlendirme bulunamadı.");
-        if (evaluation.Status == EvaluationStatus.Approved) return;
-        if (evaluation.Status is not (EvaluationStatus.Draft or EvaluationStatus.Completed))
-            throw new ValidationException("Bu değerlendirme onaylanabilir durumda değil.");
         await EnsureEmployeeAccessAsync(evaluation.EmployeeId, approverUserId, ct);
+        if (evaluation.Status == EvaluationStatus.Approved) return;
+        if (evaluation.Status != EvaluationStatus.Completed)
+            throw new ValidationException("Bu değerlendirme onaylanabilir durumda değil.");
+        ValidateScores(evaluation.Details.Select(x => new EvaluationItemInput(x.KpiCriterionId, x.Score, x.Note, x.ActualValue)).ToList());
         evaluation.Status = EvaluationStatus.Approved;
         evaluation.ApprovedByUserId = approverUserId;
         evaluation.ApprovedAt = DateTime.UtcNow;
         evaluation.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        await SaveEvaluationChangesAsync(ct);
+    }
+
+    private async Task SaveEvaluationChangesAsync(CancellationToken ct)
+    {
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ValidationException("Değerlendirme başka bir işlemle güncellendi. Sayfayı yenileyip tekrar deneyin.");
+        }
+    }
+
+    private async Task EnsureEvaluationEditAccessAsync(int? evaluatorUserId, int? requesterUserId, EvaluationStatus status, CancellationToken ct)
+    {
+        if (requesterUserId is null) return;
+        if (evaluatorUserId != requesterUserId && !await db.AppUsers.AsNoTracking()
+            .AnyAsync(x => x.Id == requesterUserId && x.IsActive && x.Role.IsActive && x.Role.Code == RoleCodes.Administrator, ct))
+            throw new AuthorizationException("Başka bir amirin değerlendirmesini yalnızca görüntüleyebilirsiniz.");
+        if (status == EvaluationStatus.Approved) throw new ValidationException("Onaylanmış değerlendirme değiştirilemez.");
     }
 
     private async Task EnsureEmployeeAccessAsync(int employeeId, int? userId, CancellationToken ct)
@@ -358,10 +420,10 @@ public sealed class EvaluationService(KpiDbContext db) : IEvaluationService
         };
     }
 
-    private static void ValidateScores(IReadOnlyList<EvaluationItemInput> items)
+    private static void ValidateScores(IReadOnlyList<EvaluationItemInput> items, bool isDraft = false)
     {
         if (items.Count == 0) throw new ValidationException("Değerlendirilecek KPI bulunamadı.");
-        if (items.Any(x => x.Score is < 1 or > 5))
+        if (items.Any(x => x.Score < (isDraft ? 0 : 1) || x.Score > 5))
             throw new ValidationException("Bütün KPI maddeleri 1 ile 5 arasında puanlanmalıdır.");
     }
 

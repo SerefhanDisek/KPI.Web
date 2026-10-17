@@ -11,6 +11,7 @@ public static class DependencyInjection
         services.AddDbContext<KpiDbContext>(options => options.UseSqlServer(connectionString));
         services.AddScoped<IDatabaseInitializer, DatabaseInitializer>();
         services.AddScoped<IEmployeeService, EmployeeService>();
+        services.AddScoped<IEmployeeLeaveService, EmployeeLeaveService>();
         services.AddScoped<IProfessionService, ProfessionService>();
         services.AddScoped<IKpiService, KpiService>();
         services.AddScoped<ICompanyGoalService, CompanyGoalService>();

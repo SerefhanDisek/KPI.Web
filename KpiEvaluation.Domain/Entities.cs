@@ -62,6 +62,15 @@ public sealed class KpiCriterion
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     public ICollection<EmployeeEvaluationDetail> EvaluationDetails { get; set; } = [];
+    public ICollection<KpiCriterionProfession> Professions { get; set; } = [];
+}
+
+public sealed class KpiCriterionProfession
+{
+    public int KpiCriterionId { get; set; }
+    public KpiCriterion KpiCriterion { get; set; } = null!;
+    public int ProfessionId { get; set; }
+    public Profession Profession { get; set; } = null!;
 }
 
 public sealed class CompanyGoal
