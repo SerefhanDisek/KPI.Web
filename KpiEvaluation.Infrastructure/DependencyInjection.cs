@@ -1,4 +1,5 @@
-using KpiEvaluation.Application;
+using KpiEvaluation.Application.Repositories;
+using KpiEvaluation.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,18 +11,18 @@ public static class DependencyInjection
     {
         services.AddDbContext<KpiDbContext>(options => options.UseSqlServer(connectionString));
         services.AddScoped<IDatabaseInitializer, DatabaseInitializer>();
-        services.AddScoped<IEmployeeService, EmployeeService>();
-        services.AddScoped<IEmployeeLeaveService, EmployeeLeaveService>();
-        services.AddScoped<IProfessionService, ProfessionService>();
-        services.AddScoped<IKpiService, KpiService>();
-        services.AddScoped<ICompanyGoalService, CompanyGoalService>();
-        services.AddScoped<IEvaluationService, EvaluationService>();
-        services.AddScoped<IEvaluationImportService, EvaluationImportService>();
-        services.AddScoped<IDashboardService, DashboardService>();
-        services.AddScoped<IEvaluationPeriodService, EvaluationPeriodService>();
-        services.AddScoped<IAuthenticationService, AuthenticationService>();
-        services.AddScoped<IAccessControlService, AccessControlService>();
-        services.AddScoped<IPageDefinitionService, PageDefinitionService>();
+        services.AddScoped<IEmployeeRepository, EmployeeRepository>();
+        services.AddScoped<IEmployeeLeaveRepository, EmployeeLeaveRepository>();
+        services.AddScoped<IProfessionRepository, ProfessionRepository>();
+        services.AddScoped<IKpiRepository, KpiRepository>();
+        services.AddScoped<ICompanyGoalRepository, CompanyGoalRepository>();
+        services.AddScoped<IEvaluationRepository, EvaluationRepository>();
+        services.AddScoped<IEvaluationImportRepository, EvaluationImportRepository>();
+        services.AddScoped<IDashboardRepository, DashboardRepository>();
+        services.AddScoped<IEvaluationPeriodRepository, EvaluationPeriodRepository>();
+        services.AddScoped<IAuthenticationRepository, AuthenticationRepository>();
+        services.AddScoped<IAccessControlRepository, AccessControlRepository>();
+        services.AddScoped<IPageDefinitionRepository, PageDefinitionRepository>();
         services.AddScoped<ISecuritySeeder, SecuritySeeder>();
         services.AddSingleton(new SecurityBootstrapOptions(bootstrapPassword));
 

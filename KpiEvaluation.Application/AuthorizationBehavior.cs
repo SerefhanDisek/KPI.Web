@@ -1,8 +1,9 @@
+using KpiEvaluation.Application.Repositories;
 using MediatR;
 
 namespace KpiEvaluation.Application;
 
-public sealed class AuthorizationBehavior<TRequest, TResponse>(ICurrentUser currentUser, IAccessControlService accessControl)
+public sealed class AuthorizationBehavior<TRequest, TResponse>(ICurrentUser currentUser, IAccessControlRepository accessControl)
     : IPipelineBehavior<TRequest, TResponse> where TRequest : notnull
 {
     public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next,

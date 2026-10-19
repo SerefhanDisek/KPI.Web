@@ -1,4 +1,4 @@
-using KpiEvaluation.Application.Features;
+using KpiEvaluation.Application.Features.Dashboard.Queries.GetDashboard;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 

@@ -1,5 +1,6 @@
 using KpiEvaluation.Application;
-using KpiEvaluation.Application.Features;
+using KpiEvaluation.Application.Features.EmployeeLeaves.Commands.SaveEmployeeLeave;
+using KpiEvaluation.Application.Features.EmployeeLeaves.Queries.GetEmployeeLeaves;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 

@@ -4,6 +4,9 @@
 
 - This repository is a self-contained Onion Architecture solution containing Domain, Application, Infrastructure, and ASP.NET Core Web projects; it must not reference projects or source files outside the repository root.
 - HTTP use cases are defined in the Application layer and follow CQRS with MediatR. Controllers are thin and only bind input, dispatch requests, and return results.
+- Each controller has its own file. Each command/query and its handler have separate files under `Features/<Feature>/Commands/<Operation>` or `Features/<Feature>/Queries/<Operation>`, using `<Operation>CommandHandler` and `<Operation>QueryHandler` names.
+- Handlers depend on use-case repository contracts in `Application/Repositories`. Concrete repositories live in `Infrastructure/Repositories` and retain EF Core queries, business validation, access scopes, and transaction boundaries. Repository contracts return the existing Application DTOs and propagate cancellation; they do not expose EF Core or `IQueryable` to Application or Web.
+- Use MediatR directly without BiUM base classes, response wrappers, or BiApp service dependencies. Technical database initialization, seeding, and maintenance remain Infrastructure services.
 - The Web project must not contain Commands, Queries, or Handlers.
 - Application and Infrastructure expose their own dependency-injection registration methods; Web acts only as the composition root and does not register concrete persistence services individually.
 - Database access and business validation stay in the Infrastructure project. The web host does not access `KpiDbContext` from controllers or browser code.
@@ -24,7 +27,7 @@
 
 - Async request flows propagate `CancellationToken`.
 - Validation errors use the shared JSON problem shape and are shown to the user without leaking internal details.
-- Authentication uses an HTTP-only cookie. Roles and permissions are managed as persisted data; role permissions are checked by the Application pipeline on every protected use case, while the web menu reflects the same permissions for usability.
+- Authentication uses an HTTP-only cookie. Roles and permissions are managed as persisted data; role permissions are checked by the Application pipeline through `IAccessControlRepository` on every protected use case, while the web menu reflects the same permissions for usability.
 - Evaluation read access does not grant edit access. Infrastructure checks record ownership for both edit queries and updates, preserves the existing administrator scope, and prevents changes to approved evaluations.
 - Temporary evaluations may retain unanswered items with score 0. Permanent saves require all items to be scored 1–5 and both evaluation-create and evaluation-approve permissions; they set Approved status, approver, and approval time immediately. Evaluation status is a concurrency token so a stale draft update cannot overwrite a permanent save.
 - KPI teams are the existing profession groups. A common KPI applies to everyone; a scoped KPI can target multiple professions through `kpi_criterion_profession`. Keep the legacy primary `ProfessionId` synchronized and include both legacy and linked scopes in selection and per-profession weight validation.

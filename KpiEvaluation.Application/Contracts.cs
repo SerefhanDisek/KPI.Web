@@ -44,63 +44,10 @@ public sealed record PortableEvaluationDto(string EmployeeName,string Profession
     EvaluationStatus Status=EvaluationStatus.Completed,string? ManagerFeedback=null,string? EmployeeFeedback=null,string? DevelopmentAction=null,DateOnly? FollowUpDate=null);
 public sealed record ImportResultDto(int ImportedCount, int SkippedCount, IReadOnlyList<string> Errors);
 
-public interface IEmployeeService
-{
-    Task<IReadOnlyList<EmployeeDto>> GetAllAsync(bool activeOnly = false, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<LookupDto>> GetProfessionsAsync(CancellationToken cancellationToken = default);
-    Task<EmployeeDto> SaveAsync(int? id, string fullName, int professionId, bool isActive, CancellationToken cancellationToken = default);
-}
-public interface IProfessionService
-{
-    Task<IReadOnlyList<ProfessionDto>> GetAllAsync(CancellationToken cancellationToken = default);
-    Task<ProfessionDto> SaveAsync(int? id, string name, bool isActive, CancellationToken cancellationToken = default);
-}
-public interface IKpiService
-{
-    Task<IReadOnlyList<KpiDto>> GetAllAsync(CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<KpiDto>> GetForProfessionAsync(int professionId, int? evaluationPeriodId = null, CancellationToken cancellationToken = default);
-    Task<KpiDto> SaveAsync(int? id, string title, string? description, int? professionId, bool isCommon, int displayOrder, bool isActive, CancellationToken cancellationToken = default,
-        string? category = null, int? companyGoalId = null, KpiMeasurementType measurementType = KpiMeasurementType.ManualScore,
-        string? unit = null, decimal? targetValue = null, KpiTargetDirection targetDirection = KpiTargetDirection.AtLeast,
-        decimal weightPercent = 0, string? dataSource = null, KpiReviewFrequency reviewFrequency = KpiReviewFrequency.SemiAnnual,
-        DateOnly? validFrom = null, DateOnly? validTo = null, bool isSpecific = false, bool isMeasurable = false,
-        bool isAchievable = false, bool isRelevant = false, bool isTimeBound = false, IReadOnlyList<int>? professionIds = null);
-}
-public interface ICompanyGoalService
-{
-    Task<IReadOnlyList<CompanyGoalDto>> GetAllAsync(CancellationToken cancellationToken = default);
-    Task<CompanyGoalDto> SaveAsync(int? id, string name, string? description, int? evaluationPeriodId, int priority, bool isActive, CancellationToken cancellationToken = default);
-}
-public interface IEvaluationPeriodService
-{
-    Task<IReadOnlyList<PeriodDto>> GetAllAsync(bool activeOnly = false, CancellationToken cancellationToken = default);
-    Task<PeriodDto> SaveAsync(int? id, string name, DateOnly startDate, DateOnly endDate, bool isActive, CancellationToken cancellationToken = default);
-}
-public interface IEvaluationService
-{
-    Task SaveAsync(EvaluationSaveInput input, CancellationToken cancellationToken = default, int? evaluatorUserId = null);
-    Task<IReadOnlyList<EvaluationSummaryDto>> GetHistoryAsync(int? employeeId, int? professionId, int? periodId, CancellationToken cancellationToken = default,
-        int? requesterUserId = null, int? evaluatorUserId = null);
-    Task<IReadOnlyList<EvaluationDetailDto>> GetDetailsAsync(long evaluationId, CancellationToken cancellationToken = default, int? requesterUserId = null);
-    Task<EvaluationEditDto> GetForEditAsync(long evaluationId, CancellationToken cancellationToken = default, int? requesterUserId = null);
-    Task UpdateAsync(long evaluationId, string? generalNote, IReadOnlyList<EvaluationItemUpdateInput> items, CancellationToken cancellationToken = default,
-        EvaluationStatus status = EvaluationStatus.Completed, string? managerFeedback = null, string? employeeFeedback = null,
-        string? developmentAction = null, DateOnly? followUpDate = null, int? requesterUserId = null);
-    Task ApproveAsync(long evaluationId, int approverUserId, CancellationToken cancellationToken = default);
-}
 public interface IDatabaseMaintenanceService
 {
     Task BackupAsync(string filePath, CancellationToken cancellationToken = default);
     Task RestoreAsync(string filePath, CancellationToken cancellationToken = default);
-}
-public interface IDashboardService
-{
-    Task<DashboardDto> GetAsync(int? periodId, CancellationToken cancellationToken = default, int? requesterUserId = null, int? evaluatorUserId = null);
-    Task<IReadOnlyList<PortableEvaluationDto>> GetPortableEvaluationsAsync(int? periodId, CancellationToken cancellationToken = default);
-}
-public interface IEvaluationImportService
-{
-    Task<ImportResultDto> ImportAsync(IReadOnlyList<PortableEvaluationDto> evaluations, CancellationToken cancellationToken = default);
 }
 
 public sealed class ValidationException(string message) : Exception(message);

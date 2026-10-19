@@ -55,19 +55,24 @@ Yönetici, Yetkilendirme ekranından yeni rol oluşturabilir, rolü aktif/pasif 
 Tarayıcı
   → ASP.NET Core Controller
   → MediatR Command / Query
-  → Application servis sözleşmesi
-  → Infrastructure / EF Core
+  → Command Handler / Query Handler
+  → Application repository sözleşmesi
+  → Infrastructure Repository / EF Core
   → SQL Server
 ```
 
 Web katmanı iş kuralı veya doğrudan EF Core sorgusu içermez. Ayrıntılı proje kuralları için `RULES.md` dosyasına bakın.
 
+Her işlem `Features/<Özellik>/Commands/<İşlem>` veya `Features/<Özellik>/Queries/<İşlem>` altında kendi istek ve handler dosyasında tanımlanır. Handler'lar `Application/Repositories` sözleşmelerini kullanır; EF Core sorguları, iş doğrulamaları ve transaction yönetimi `Infrastructure/Repositories` içinde uygulanır. Controller'lar yalnızca HTTP girdisini alır, MediatR üzerinden isteği gönderir ve sonucu döndürür.
+
+Bu yapı BiUM paketi, BiApp servisleri veya repository dışındaki projelere referans gerektirmez. Mevcut API adresleri, DTO'lar, yetki kontrolleri ve veritabanı şeması korunur.
+
 Repository yapısı:
 
 ```text
 KpiEvaluation.Domain          Domain model ve iş kavramları
-KpiEvaluation.Application     CQRS, MediatR, DTO ve servis sözleşmeleri
-KpiEvaluation.Infrastructure  EF Core, migration ve teknik uygulamalar
+KpiEvaluation.Application     CQRS, MediatR, DTO ve repository sözleşmeleri
+KpiEvaluation.Infrastructure  Repository, EF Core, migration ve teknik uygulamalar
 KPI.Web                       ASP.NET Core API ve web arayüzü
 Database                      Başlangıç SQL dosyaları
 ```
