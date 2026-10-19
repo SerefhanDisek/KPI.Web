@@ -20,7 +20,7 @@ SELECT e.profession_id,e.title,CAST(0 AS bit),e.display_order
 FROM expanded e
 WHERE NOT EXISTS (
     SELECT 1 FROM kpi_criterion k
-    WHERE k."ProfessionId"=e.profession_id AND k."Title"=e.title
+    WHERE k."ProfessionId"=e.profession_id AND k."Title" COLLATE Turkish_CI_AS=e.title COLLATE Turkish_CI_AS
 );
 
 WITH common AS (
@@ -32,4 +32,4 @@ SELECT * FROM (VALUES
 )
 INSERT INTO kpi_criterion("ProfessionId","Title","IsCommon","DisplayOrder")
 SELECT NULL,c.title,CAST(1 AS bit),c.display_order FROM common c
-WHERE NOT EXISTS (SELECT 1 FROM kpi_criterion k WHERE k."ProfessionId" IS NULL AND k."Title"=c.title);
+WHERE NOT EXISTS (SELECT 1 FROM kpi_criterion k WHERE k."ProfessionId" IS NULL AND k."Title" COLLATE Turkish_CI_AS=c.title COLLATE Turkish_CI_AS);

@@ -36,7 +36,4 @@ public sealed record EmployeeManagerDto(int EmployeeId, string EmployeeName, int
 public sealed record ManagerDashboardDto(int UserId, string ManagerName, string RoleCode, string RoleName, int EmployeeCount,
     int ApprovedEvaluationCount, int PendingEvaluationCount, decimal AveragePercentage);
 
-public sealed record PageDefinitionDto(int Id, string Title, string Slug, string? Description, string LayoutJson,
-    AppPermission RequiredPermission, bool IsActive);
-
 public sealed class AuthorizationException(string message = "Bu işlem için yetkiniz bulunmuyor.") : Exception(message);

@@ -26,7 +26,7 @@ public sealed class EvaluationImportRepository(KpiDbContext db, IEvaluationRepos
                     .Where(x => x.IsActive && x.Name == source.PeriodName).Select(x => (int?)x.Id).SingleOrDefaultAsync(ct)
                     ?? throw new ValidationException($"Dönem bulunamadı: {source.PeriodName}");
 
-                if (await db.EmployeeEvaluations.AnyAsync(x => x.EmployeeId == employee.Id && x.EvaluationPeriodId == periodId, ct))
+                if (await db.EmployeeEvaluations.AnyAsync(x => x.EmployeeId == employee.Id && x.EvaluationPeriodId == periodId && x.EvaluatorUserId == null, ct))
                 {
                     skipped++;
                     continue;

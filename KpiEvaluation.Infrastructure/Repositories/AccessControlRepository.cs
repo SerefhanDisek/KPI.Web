@@ -12,22 +12,26 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
 {
     public async Task<bool> HasPermissionAsync(int userId, AppPermission permission, CancellationToken ct = default)
     {
-        var roleId = await db.AppUsers.AsNoTracking().Where(x => x.Id == userId && x.IsActive && x.Role.IsActive).Select(x => (int?)x.RoleId).SingleOrDefaultAsync(ct);
-        return roleId is not null && await db.RolePermissions.AsNoTracking().AnyAsync(x => x.RoleId == roleId && x.Permission == permission && x.IsAllowed, ct);
+        if (!Enum.IsDefined(permission)) return false;
+        var user = await db.AppUsers.AsNoTracking().Where(x => x.Id == userId && x.IsActive && x.Role.IsActive)
+            .Select(x => new { x.RoleId, RoleCode = x.Role.Code }).SingleOrDefaultAsync(ct);
+        return user is not null && (user.RoleCode == RoleCodes.Administrator || await db.RolePermissions.AsNoTracking()
+            .AnyAsync(x => x.RoleId == user.RoleId && x.Permission == permission && x.IsAllowed, ct));
     }
 
     public async Task<AuthenticatedUserDto> GetCurrentAsync(int userId, CancellationToken ct = default)
     {
         var user = await db.AppUsers.AsNoTracking().Include(x => x.Role).SingleOrDefaultAsync(x => x.Id == userId && x.IsActive && x.Role.IsActive, ct)
             ?? throw new AuthorizationException();
-        var permissions = await db.RolePermissions.AsNoTracking().Where(x => x.RoleId == user.RoleId && x.IsAllowed).Select(x => x.Permission).ToListAsync(ct);
-        return new(user.Id, user.UserName, user.DisplayName, user.RoleId, user.Role.Name, user.Role.Code, user.EmployeeId, user.MustChangePassword, permissions);
+        IReadOnlyList<AppPermission> permissions = user.Role.Code == RoleCodes.Administrator ? Enum.GetValues<AppPermission>()
+            : await db.RolePermissions.AsNoTracking().Where(x => x.RoleId == user.RoleId && x.IsAllowed).Select(x => x.Permission).ToListAsync(ct);
+        return new(user.Id, user.UserName, user.DisplayName, user.RoleId, user.Role.Name, user.Role.Code, user.EmployeeId, false, permissions);
     }
 
     public async Task<IReadOnlyList<UserDto>> GetUsersAsync(CancellationToken ct = default) =>
         await db.AppUsers.AsNoTracking().OrderBy(x => x.DisplayName)
             .Select(x => new UserDto(x.Id, x.UserName, x.DisplayName, x.RoleId, x.Role.Name, x.Role.Code, x.EmployeeId,
-                x.Employee == null ? null : x.Employee.FullName, x.IsActive, x.MustChangePassword)).ToListAsync(ct);
+                x.Employee == null ? null : x.Employee.FullName, x.IsActive, false)).ToListAsync(ct);
 
     public async Task<UserDto> SaveUserAsync(UserSaveInput input, CancellationToken ct = default)
     {
@@ -43,9 +47,9 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
         AppUser user;
         if (input.Id is null)
         {
-            if (string.IsNullOrWhiteSpace(input.Password)) throw new ValidationException("Yeni kullanıcı için geçici parola zorunludur.");
+            if (string.IsNullOrWhiteSpace(input.Password)) throw new ValidationException("Yeni kullanıcı için parola zorunludur.");
             AuthenticationRepository.ValidatePassword(input.Password);
-            user = new AppUser { UserName = userName, DisplayName = displayName, PasswordHash = PasswordHashing.Hash(input.Password), MustChangePassword = true };
+            user = new AppUser { UserName = userName, DisplayName = displayName, PasswordHash = PasswordHashing.Hash(input.Password), MustChangePassword = false };
             db.AppUsers.Add(user);
         }
         else
@@ -55,7 +59,7 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
             {
                 AuthenticationRepository.ValidatePassword(input.Password);
                 user.PasswordHash = PasswordHashing.Hash(input.Password);
-                user.MustChangePassword = true;
+                user.MustChangePassword = false;
             }
         }
         user.UserName = userName; user.DisplayName = displayName; user.RoleId = input.RoleId; user.EmployeeId = input.EmployeeId;
@@ -63,7 +67,7 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
         await db.SaveChangesAsync(ct);
         var role = await db.AppRoles.AsNoTracking().SingleAsync(x => x.Id == user.RoleId, ct);
         return new(user.Id, user.UserName, user.DisplayName, user.RoleId, role.Name, role.Code, user.EmployeeId,
-            input.EmployeeId is null ? null : await db.Employees.Where(x => x.Id == input.EmployeeId).Select(x => x.FullName).SingleAsync(ct), user.IsActive, user.MustChangePassword);
+            input.EmployeeId is null ? null : await db.Employees.Where(x => x.Id == input.EmployeeId).Select(x => x.FullName).SingleAsync(ct), user.IsActive, false);
     }
 
     public async Task<IReadOnlyList<RoleDto>> GetRolesAsync(CancellationToken ct = default) =>
@@ -91,14 +95,19 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
         return new(role.Id, role.Name, role.Code, role.IsSystem, role.IsActive);
     }
 
-    public async Task<IReadOnlyList<RolePermissionDto>> GetRolePermissionsAsync(CancellationToken ct = default) =>
-        await db.RolePermissions.AsNoTracking().OrderBy(x => x.RoleId).ThenBy(x => x.Permission)
-            .Select(x => new RolePermissionDto(x.RoleId, x.Permission, x.IsAllowed)).ToListAsync(ct);
+    public async Task<IReadOnlyList<RolePermissionDto>> GetRolePermissionsAsync(CancellationToken ct = default)
+    {
+        var roles = await db.AppRoles.AsNoTracking().OrderBy(x => x.Id).Select(x => new { x.Id, x.Code }).ToListAsync(ct);
+        var rows = await db.RolePermissions.AsNoTracking().ToListAsync(ct);
+        return roles.SelectMany(role => Enum.GetValues<AppPermission>().Select(permission => new RolePermissionDto(role.Id, permission,
+            role.Code == RoleCodes.Administrator || rows.Any(x => x.RoleId == role.Id && x.Permission == permission && x.IsAllowed)))).ToList();
+    }
 
     public async Task SaveRolePermissionsAsync(int roleId, IReadOnlyList<AppPermission> permissions, CancellationToken ct = default)
     {
-        if (!await db.AppRoles.AnyAsync(x => x.Id == roleId && x.IsActive, ct)) throw new ValidationException("Rol bulunamadı.");
-        var selected = permissions.ToHashSet();
+        var roleCode = await db.AppRoles.Where(x => x.Id == roleId && x.IsActive).Select(x => x.Code).SingleOrDefaultAsync(ct)
+            ?? throw new ValidationException("Rol bulunamadı.");
+        var selected = (roleCode == RoleCodes.Administrator ? Enum.GetValues<AppPermission>() : permissions).ToHashSet();
         var rows = await db.RolePermissions.Where(x => x.RoleId == roleId).ToListAsync(ct);
         foreach (var permission in Enum.GetValues<AppPermission>())
         {

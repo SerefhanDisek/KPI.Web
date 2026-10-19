@@ -45,4 +45,4 @@ FROM profession p CROSS JOIN (VALUES
  (N'Çalışılan talep ve projelerde efor uyumu',N'Tahmin edilen efor ile gerçekleşen eforun karşılaştırılması',2),
  (N'Projelerin planlanan sürede tamamlanması',N'Dönem stratejilerindeki proje ve taleplerin zamanında tamamlanması',3)
 ) v(Title,Description,SortOrder)
-WHERE p.Name=N'Proje Yöneticisi' AND NOT EXISTS(SELECT 1 FROM kpi_criterion k WHERE k.ProfessionId=p.Id AND k.Title=v.Title);
+WHERE p.Name=N'Proje Yöneticisi' AND NOT EXISTS(SELECT 1 FROM kpi_criterion k WHERE k.ProfessionId=p.Id AND k.Title COLLATE Turkish_CI_AS=v.Title COLLATE Turkish_CI_AS);

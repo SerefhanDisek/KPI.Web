@@ -33,7 +33,7 @@ public sealed class DashboardRepository(KpiDbContext db) : IDashboardRepository
         var rows = await query.OrderByDescending(x => x.ScorePercentage)
             .Select(x => new EvaluationSummaryDto(x.Id, x.EmployeeNameSnapshot, x.ProfessionNameSnapshot,
                 x.PeriodNameSnapshot,x.TotalScore,x.AverageScore,x.EvaluationDate,x.GeneralNote,x.WeightedScore,x.Status,x.ManagerFeedback,x.EmployeeFeedback,x.DevelopmentAction,x.FollowUpDate,
-                x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt))
+                x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt,false,false,x.EmployeeId,x.ProfessionIdSnapshot,x.EvaluationPeriodId))
             .ToListAsync(ct);
         var evaluated = await query.Select(x => x.EmployeeId).Distinct().CountAsync(ct);
         var goalRows=await db.EmployeeEvaluationDetails.AsNoTracking()

@@ -11,7 +11,8 @@ public sealed record UpdateEvaluationCommand(
     string? ManagerFeedback,
     string? EmployeeFeedback,
     string? DevelopmentAction,
-    DateOnly? FollowUpDate) : IRequest, IAllAuthorizedRequest
+    DateOnly? FollowUpDate,
+    DateTime? ExpectedUpdatedAt = null) : IRequest, IAllAuthorizedRequest
 {
     public IReadOnlyCollection<AppPermission> Permissions => Status == EvaluationStatus.Draft
         ? [AppPermission.EvaluationCreate] : [AppPermission.EvaluationCreate, AppPermission.EvaluationApprove];

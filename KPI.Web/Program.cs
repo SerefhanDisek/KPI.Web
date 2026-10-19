@@ -22,6 +22,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.Name = "kpi.session";
         options.Cookie.HttpOnly = true;
         options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
         options.SlidingExpiration = true;
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.Events.OnRedirectToLogin = context => { context.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; };
@@ -29,22 +30,37 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 var authenticatedPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
-builder.Services.AddControllers(options => options.Filters.Add(new AuthorizeFilter(authenticatedPolicy)));
+builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add(new AuthorizeFilter(authenticatedPolicy));
+});
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(
     builder.Configuration.GetConnectionString("KpiDatabase")
     ?? throw new InvalidOperationException("KpiDatabase bağlantı bilgisi bulunamadı."),
-    builder.Configuration["Authentication:BootstrapPassword"]);
+    builder.Configuration["Authentication:BootstrapPassword"], builder.Environment.IsDevelopment());
 
 var app = builder.Build();
 
 app.UseMiddleware<ApiExceptionMiddleware>();
+app.UseMiddleware<BrowserSecurityMiddleware>();
 app.UseDefaultFiles();
-app.UseStaticFiles();
+var staticFiles = new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        if (context.File.Name.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+            context.Context.Response.Headers.CacheControl = "no-cache";
+    }
+};
+app.UseStaticFiles(staticFiles);
 app.UseAuthentication();
+app.UseMiddleware<AntiforgeryValidationMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
-app.MapFallbackToFile("index.html");
+app.MapFallback("/api/{**path}", context => { context.Response.StatusCode = StatusCodes.Status404NotFound; return Task.CompletedTask; });
+app.MapFallbackToFile("index.html", staticFiles);
 
-await DatabaseStartup.TryInitializeAsync(app.Services, app.Logger);
+await DatabaseStartup.TryInitializeAsync(app.Services, app.Logger, app.Environment.IsDevelopment());
 await app.RunAsync();

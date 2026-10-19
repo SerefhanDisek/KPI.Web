@@ -7,5 +7,5 @@ public sealed class UpdateEvaluationCommandHandler(IEvaluationRepository reposit
 {
     public Task Handle(UpdateEvaluationCommand request, CancellationToken cancellationToken) =>
         repository.UpdateAsync(request.Id, request.GeneralNote, request.Items, cancellationToken, request.Status,
-            request.ManagerFeedback, request.EmployeeFeedback, request.DevelopmentAction, request.FollowUpDate, currentUser.UserId);
+            request.ManagerFeedback, request.EmployeeFeedback, request.DevelopmentAction, request.FollowUpDate, currentUser.UserId, request.ExpectedUpdatedAt);
 }

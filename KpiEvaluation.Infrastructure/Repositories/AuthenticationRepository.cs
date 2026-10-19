@@ -15,13 +15,13 @@ public sealed class AuthenticationRepository(KpiDbContext db) : IAuthenticationR
         var normalized = userName.Trim().ToLowerInvariant();
         var user = await db.AppUsers.AsNoTracking().Include(x => x.Role).SingleOrDefaultAsync(x => x.UserName == normalized && x.IsActive && x.Role.IsActive, ct);
         if (user is null || !PasswordHashing.Verify(password, user.PasswordHash)) return null;
-        var permissions = await GetPermissionsAsync(user.RoleId, ct);
-        return new(user.Id, user.UserName, user.DisplayName, user.RoleId, user.Role.Name, user.Role.Code, user.EmployeeId, user.MustChangePassword, permissions);
+        var permissions = user.Role.Code == RoleCodes.Administrator ? Enum.GetValues<AppPermission>() : await GetPermissionsAsync(user.RoleId, ct);
+        return new(user.Id, user.UserName, user.DisplayName, user.RoleId, user.Role.Name, user.Role.Code, user.EmployeeId, false, permissions);
     }
 
     public async Task ChangePasswordAsync(int userId, string currentPassword, string newPassword, CancellationToken ct = default)
     {
-        var user = await db.AppUsers.SingleOrDefaultAsync(x => x.Id == userId && x.IsActive, ct)
+        var user = await db.AppUsers.SingleOrDefaultAsync(x => x.Id == userId && x.IsActive && x.Role.IsActive, ct)
             ?? throw new ValidationException("Kullanıcı bulunamadı.");
         if (!PasswordHashing.Verify(currentPassword, user.PasswordHash)) throw new ValidationException("Mevcut parola hatalı.");
         ValidatePassword(newPassword);

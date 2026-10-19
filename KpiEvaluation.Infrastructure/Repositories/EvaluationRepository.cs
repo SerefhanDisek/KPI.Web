@@ -21,6 +21,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
             .Select(x => new { x.Id, x.ProfessionId, x.FullName, ProfessionName = x.Profession.Name })
             .SingleOrDefaultAsync(ct) ?? throw new ValidationException("Aktif çalışan bulunamadı.");
         await EnsureEmployeeAccessAsync(employee.Id, evaluatorUserId, ct);
+        if (await db.EmployeeEvaluations.AsNoTracking().AnyAsync(x => x.EmployeeId == employee.Id && x.EvaluationPeriodId == input.EvaluationPeriodId && x.EvaluatorUserId == evaluatorUserId, ct))
+            throw new DuplicateEvaluationException();
         var period = await db.EvaluationPeriods.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == input.EvaluationPeriodId && x.IsActive, ct)
             ?? throw new ValidationException("Aktif değerlendirme dönemi bulunamadı.");
@@ -74,7 +76,7 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
                     return new EmployeeEvaluationDetail
                     {
                         KpiCriterionId = x.KpiCriterionId,
-                        KpiTitleSnapshot = criterion.Title,
+                        KpiTitleSnapshot = KpiQuestionText.CapitalizeWords(criterion.Title),
                         IsCommonSnapshot = criterion.IsCommon,
                         DisplayOrderSnapshot = criterion.DisplayOrder,
                         Score = x.Score,
@@ -105,10 +107,10 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
     {
         var roleCode = requesterUserId is null ? null : await db.AppUsers.AsNoTracking().Where(x => x.Id == requesterUserId)
             .Select(x => x.Role.Code).SingleOrDefaultAsync(ct);
-        var canEdit = requesterUserId is not null && await db.RolePermissions.AnyAsync(x => x.Role.Users.Any(u => u.Id == requesterUserId && u.IsActive && u.Role.IsActive)
-            && x.Permission == AppPermission.EvaluationCreate && x.IsAllowed, ct);
-        var canApprove = requesterUserId is not null && await db.RolePermissions.AnyAsync(x => x.Role.Users.Any(u => u.Id == requesterUserId && u.IsActive && u.Role.IsActive)
-            && x.Permission == AppPermission.EvaluationApprove && x.IsAllowed, ct);
+        var canEdit = requesterUserId is not null && (roleCode == RoleCodes.Administrator || await db.RolePermissions.AnyAsync(x => x.Role.Users.Any(u => u.Id == requesterUserId && u.IsActive && u.Role.IsActive)
+            && x.Permission == AppPermission.EvaluationCreate && x.IsAllowed, ct));
+        var canApprove = requesterUserId is not null && (roleCode == RoleCodes.Administrator || await db.RolePermissions.AnyAsync(x => x.Role.Users.Any(u => u.Id == requesterUserId && u.IsActive && u.Role.IsActive)
+            && x.Permission == AppPermission.EvaluationApprove && x.IsAllowed, ct));
         return await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId)
             .Where(x => (employeeId == null || x.EmployeeId == employeeId)
                         && (professionId == null || x.ProfessionIdSnapshot == professionId)
@@ -121,7 +123,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
                 canEdit && x.Status != EvaluationStatus.Approved && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator),
                 canApprove && x.Status == EvaluationStatus.Completed && (roleCode == RoleCodes.Administrator
                     || (roleCode == RoleCodes.FirstManager && x.Employee.FirstManagerUserId == requesterUserId)
-                    || (roleCode == RoleCodes.SecondManager && x.Employee.SecondManagerUserId == requesterUserId))))
+                    || (roleCode == RoleCodes.SecondManager && x.Employee.SecondManagerUserId == requesterUserId)),
+                x.EmployeeId, x.ProfessionIdSnapshot, x.EvaluationPeriodId))
             .ToListAsync(ct);
     }
 
@@ -131,7 +134,7 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
         return await db.EmployeeEvaluationDetails.AsNoTracking()
             .Where(x => x.EmployeeEvaluationId == id)
             .OrderBy(x => x.IsCommonSnapshot).ThenBy(x => x.DisplayOrderSnapshot)
-            .Select(x => new EvaluationDetailDto(x.KpiTitleSnapshot, x.Score, x.Note, x.IsCommonSnapshot, x.ActualValue,
+            .Select(x => new EvaluationDetailDto(KpiQuestionText.CapitalizeWords(x.KpiTitleSnapshot), x.Score, x.Note, x.IsCommonSnapshot, x.ActualValue,
                 x.WeightPercentSnapshot, x.TargetValueSnapshot, x.MeasurementTypeSnapshot, x.UnitSnapshot, x.WeightedScore, x.TargetDirectionSnapshot))
             .ToListAsync(ct);
     }
@@ -140,21 +143,31 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
     {
         var evaluation = await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId)
             .Where(x => x.Id == evaluationId)
-            .Select(x => new { x.Id, x.GeneralNote, x.Status, x.ManagerFeedback, x.EmployeeFeedback, x.DevelopmentAction, x.FollowUpDate, x.EvaluatorUserId })
+            .Select(x => new { x.Id, x.GeneralNote, x.Status, x.ManagerFeedback, x.EmployeeFeedback, x.DevelopmentAction, x.FollowUpDate, x.EvaluatorUserId, x.UpdatedAt })
             .SingleOrDefaultAsync(ct) ?? throw new ValidationException("Değerlendirme bulunamadı.");
         await EnsureEvaluationEditAccessAsync(evaluation.EvaluatorUserId, requesterUserId, evaluation.Status, ct);
         var items = await db.EmployeeEvaluationDetails.AsNoTracking()
             .Where(x => x.EmployeeEvaluationId == evaluationId)
             .OrderBy(x => x.IsCommonSnapshot).ThenBy(x => x.DisplayOrderSnapshot)
-            .Select(x => new EvaluationEditItemDto(x.Id, x.KpiTitleSnapshot, x.Score, x.Note, x.IsCommonSnapshot,
-                x.ActualValue, x.MeasurementTypeSnapshot, x.UnitSnapshot, x.TargetValueSnapshot, x.TargetDirectionSnapshot))
+            .Select(x => new EvaluationEditItemDto(x.Id, KpiQuestionText.CapitalizeWords(x.KpiTitleSnapshot), x.Score, x.Note, x.IsCommonSnapshot,
+                x.ActualValue, x.MeasurementTypeSnapshot, x.UnitSnapshot, x.TargetValueSnapshot, x.TargetDirectionSnapshot, x.KpiCriterionId, x.WeightPercentSnapshot))
             .ToListAsync(ct);
         return new EvaluationEditDto(evaluation.Id, evaluation.GeneralNote, items, evaluation.Status, evaluation.ManagerFeedback,
-            evaluation.EmployeeFeedback, evaluation.DevelopmentAction, evaluation.FollowUpDate);
+            evaluation.EmployeeFeedback, evaluation.DevelopmentAction, evaluation.FollowUpDate, evaluation.UpdatedAt);
+    }
+
+    public async Task<EvaluationResumeDto?> GetForResumeAsync(int employeeId, int periodId, int requesterUserId, CancellationToken ct = default)
+    {
+        if (employeeId <= 0 || periodId <= 0) throw new ValidationException("Çalışan ve dönem seçmelisiniz.");
+        await EnsureEmployeeAccessAsync(employeeId, requesterUserId, ct);
+        return await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId)
+            .Where(x => x.EmployeeId == employeeId && x.EvaluationPeriodId == periodId && x.EvaluatorUserId == requesterUserId)
+            .Select(x => new EvaluationResumeDto(x.Id, x.Status, x.Status != EvaluationStatus.Approved))
+            .SingleOrDefaultAsync(ct);
     }
 
     public async Task UpdateAsync(long evaluationId, string? generalNote, IReadOnlyList<EvaluationItemUpdateInput> items, CancellationToken ct = default,
-        EvaluationStatus status=EvaluationStatus.Completed,string? managerFeedback=null,string? employeeFeedback=null,string? developmentAction=null,DateOnly? followUpDate=null,int? requesterUserId=null)
+        EvaluationStatus status=EvaluationStatus.Completed,string? managerFeedback=null,string? employeeFeedback=null,string? developmentAction=null,DateOnly? followUpDate=null,int? requesterUserId=null,DateTime? expectedUpdatedAt=null)
     {
         if (requesterUserId is not null && status is not (EvaluationStatus.Draft or EvaluationStatus.Completed or EvaluationStatus.Approved))
             throw new ValidationException("Geçici veya kalıcı kayıt seçmelisiniz.");
@@ -166,6 +179,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
             ?? throw new ValidationException("Değerlendirme bulunamadı.");
         if (!await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId).AnyAsync(x => x.Id == evaluationId, ct)) throw new AuthorizationException();
         await EnsureEvaluationEditAccessAsync(evaluation.EvaluatorUserId, requesterUserId, evaluation.Status, ct);
+        if (evaluation.UpdatedAt != expectedUpdatedAt)
+            throw new ValidationException("Değerlendirme başka bir işlemle güncellendi. Değişiklikleriniz kaydedilmedi; güncel taslağı açıp tekrar deneyin.");
         if (items.Select(x => x.DetailId).Distinct().Count() != items.Count)
             throw new ValidationException("Değerlendirme maddeleri yinelenemez.");
         var updates = items.ToDictionary(x => x.DetailId);
@@ -201,7 +216,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
         evaluation.ApprovedByUserId=isDraft?null:requesterUserId;
         evaluation.ApprovedAt=isDraft?null:DateTime.UtcNow;
         evaluation.ManagerFeedback=managerFeedback?.Trim();evaluation.EmployeeFeedback=employeeFeedback?.Trim();evaluation.DevelopmentAction=developmentAction?.Trim();evaluation.FollowUpDate=followUpDate;
-        evaluation.UpdatedAt = DateTime.UtcNow;
+        var updatedAt = DateTime.UtcNow;
+        evaluation.UpdatedAt = evaluation.UpdatedAt is { } previous && updatedAt <= previous ? previous.AddTicks(1) : updatedAt;
         await SaveEvaluationChangesAsync(ct);
     }
 
@@ -258,7 +274,7 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
     private IQueryable<EmployeeEvaluation> ApplyAccessFilter(IQueryable<EmployeeEvaluation> query, int? userId)
     {
         if (userId is null) return query;
-        var user = db.AppUsers.AsNoTracking().Where(x => x.Id == userId && x.IsActive)
+        var user = db.AppUsers.AsNoTracking().Where(x => x.Id == userId && x.IsActive && x.Role.IsActive)
             .Select(x => new { RoleCode=x.Role.Code, x.EmployeeId }).SingleOrDefault();
         if (user is null) return query.Where(_ => false);
         return user.RoleCode switch

@@ -1,5 +1,4 @@
 using KpiEvaluation.Application;
-using KpiEvaluation.Application.Features.EmployeeLeaves.Commands.SaveEmployeeLeave;
 using KpiEvaluation.Application.Features.EmployeeLeaves.Queries.GetEmployeeLeaves;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -16,7 +15,4 @@ public sealed class EmployeeLeavesController(ISender sender) : ControllerBase
         [FromQuery] bool activeOnly = true, [FromQuery] int page = 1, [FromQuery] int pageSize = 25) =>
         sender.Send(new GetEmployeeLeavesQuery(employeeId, professionId, from, to, activeOnly, page, pageSize), cancellationToken);
 
-    [HttpPost]
-    public Task<EmployeeLeaveDto> Save(EmployeeLeaveSaveInput input, CancellationToken cancellationToken) =>
-        sender.Send(new SaveEmployeeLeaveCommand(input), cancellationToken);
 }

@@ -23,7 +23,13 @@ public enum AppPermission
     PageDesignerManage = 9,
     AuthorizationManage = 10,
     LeaveView = 11,
-    LeaveManage = 12
+    LeaveManage = 12,
+    AuditView = 13,
+    EvaluationRespond = 14,
+    EvaluationTasks = 15,
+    CalibrationView = 16,
+    TalentManage = 17,
+    DevelopmentManage = 18
 }
 
 public sealed class AppRole
@@ -49,7 +55,7 @@ public sealed class AppUser
     public int? EmployeeId { get; set; }
     public Employee? Employee { get; set; }
     public bool IsActive { get; set; } = true;
-    public bool MustChangePassword { get; set; } = true;
+    public bool MustChangePassword { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 }

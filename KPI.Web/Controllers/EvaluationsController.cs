@@ -4,6 +4,7 @@ using KpiEvaluation.Application.Features.Evaluations.Commands.SaveEvaluation;
 using KpiEvaluation.Application.Features.Evaluations.Commands.UpdateEvaluation;
 using KpiEvaluation.Application.Features.Evaluations.Queries.GetEvaluationDetails;
 using KpiEvaluation.Application.Features.Evaluations.Queries.GetEvaluationForEdit;
+using KpiEvaluation.Application.Features.Evaluations.Queries.GetEvaluationForResume;
 using KpiEvaluation.Application.Features.Evaluations.Queries.GetEvaluationHistory;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -26,6 +27,10 @@ public sealed class EvaluationsController(ISender sender) : ControllerBase
     [HttpGet("{id:long}/edit")]
     public Task<EvaluationEditDto> GetForEdit(long id, CancellationToken cancellationToken) =>
         sender.Send(new GetEvaluationForEditQuery(id), cancellationToken);
+
+    [HttpGet("resume")]
+    public Task<EvaluationResumeDto?> GetForResume([FromQuery] int employeeId, [FromQuery] int periodId, CancellationToken cancellationToken) =>
+        sender.Send(new GetEvaluationForResumeQuery(employeeId, periodId), cancellationToken);
 
     [HttpPost]
     public async Task<IActionResult> Save(EvaluationSaveInput input, CancellationToken cancellationToken)

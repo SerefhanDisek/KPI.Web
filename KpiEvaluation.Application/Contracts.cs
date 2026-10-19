@@ -24,17 +24,19 @@ public sealed record EvaluationSaveInput(int EmployeeId,int EvaluationPeriodId,s
 public sealed record EvaluationSummaryDto(long Id, string EmployeeName, string ProfessionName, string PeriodName, int TotalScore, decimal AverageScore, DateTime EvaluationDate, string? GeneralNote,
     decimal WeightedScore=0,EvaluationStatus Status=EvaluationStatus.Completed,string? ManagerFeedback=null,string? EmployeeFeedback=null,string? DevelopmentAction=null,DateOnly? FollowUpDate=null,
     int MaximumScore=0,decimal ScorePercentage=0,int? EvaluatorUserId=null,string? EvaluatorName=null,DateTime? ApprovedAt=null,
-    bool CanEdit=false,bool CanApprove=false)
+    bool CanEdit=false,bool CanApprove=false,int EmployeeId=0,int? ProfessionId=null,int EvaluationPeriodId=0)
 {
     public string StatusName => Status switch { EvaluationStatus.Draft=>"Taslak",EvaluationStatus.Completed=>"Tamamlandı",EvaluationStatus.Shared=>"Çalışana İletildi",EvaluationStatus.EmployeeCommented=>"Çalışan Görüşü Alındı",_=>"Onaylandı" };
 }
 public sealed record EvaluationDetailDto(string KpiTitle, int Score, string? Note, bool IsCommon, decimal? ActualValue = null,
     decimal WeightPercent = 0, decimal? TargetValue = null, KpiMeasurementType MeasurementType = KpiMeasurementType.ManualScore, string? Unit = null, decimal WeightedScore = 0, KpiTargetDirection TargetDirection = KpiTargetDirection.AtLeast);
 public sealed record EvaluationEditItemDto(long DetailId, string KpiTitle, int Score, string? Note, bool IsCommon, decimal? ActualValue = null,
-    KpiMeasurementType MeasurementType = KpiMeasurementType.ManualScore, string? Unit = null, decimal? TargetValue = null, KpiTargetDirection TargetDirection = KpiTargetDirection.AtLeast);
+    KpiMeasurementType MeasurementType = KpiMeasurementType.ManualScore, string? Unit = null, decimal? TargetValue = null, KpiTargetDirection TargetDirection = KpiTargetDirection.AtLeast,
+    int KpiCriterionId = 0, decimal WeightPercent = 0);
 public sealed record EvaluationEditDto(long Id, string? GeneralNote, IReadOnlyList<EvaluationEditItemDto> Items,
     EvaluationStatus Status = EvaluationStatus.Completed, string? ManagerFeedback = null, string? EmployeeFeedback = null,
-    string? DevelopmentAction = null, DateOnly? FollowUpDate = null);
+    string? DevelopmentAction = null, DateOnly? FollowUpDate = null, DateTime? UpdatedAt = null);
+public sealed record EvaluationResumeDto(long Id, EvaluationStatus Status, bool CanEdit);
 public sealed record EvaluationItemUpdateInput(long DetailId, int Score, string? Note, decimal? ActualValue = null);
 public sealed record GoalProgressDto(string GoalName,decimal AverageScore,int EvaluationCount);
 public sealed record DashboardDto(int TotalEmployees,int EvaluatedEmployees,int NotEvaluatedEmployees,decimal OverallAverage,IReadOnlyList<EvaluationSummaryDto> Results,IReadOnlyList<GoalProgressDto>? GoalProgress=null,
@@ -51,4 +53,4 @@ public interface IDatabaseMaintenanceService
 }
 
 public sealed class ValidationException(string message) : Exception(message);
-public sealed class DuplicateEvaluationException() : Exception("Bu çalışan için seçilen dönemde zaten bir değerlendirme bulunmaktadır.");
+public sealed class DuplicateEvaluationException() : Exception("Bu çalışan ve dönem için size ait bir değerlendirme zaten var. Mevcut kayda devam edin.");

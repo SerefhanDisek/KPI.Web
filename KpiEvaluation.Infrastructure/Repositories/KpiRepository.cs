@@ -13,7 +13,7 @@ public sealed class KpiRepository(KpiDbContext db) : IKpiRepository
         .OrderBy(x=>x.IsCommon)
         .ThenBy(x=>x.Profession == null ? string.Empty : x.Profession.Name)
         .ThenBy(x=>x.DisplayOrder)
-        .Select(x=>new KpiDto(x.Id,x.Title,x.Description,x.ProfessionId,x.Profession==null?null:x.Profession.Name,x.IsCommon,x.DisplayOrder,x.IsActive,
+        .Select(x=>new KpiDto(x.Id,KpiQuestionText.CapitalizeWords(x.Title),x.Description,x.ProfessionId,x.Profession==null?null:x.Profession.Name,x.IsCommon,x.DisplayOrder,x.IsActive,
             x.Category,x.CompanyGoalId,x.CompanyGoal==null?null:x.CompanyGoal.Name,x.MeasurementType,x.Unit,x.TargetValue,x.TargetDirection,x.WeightPercent,x.DataSource,x.ReviewFrequency,x.ValidFrom,x.ValidTo,x.IsSpecific,x.IsMeasurable,x.IsAchievable,x.IsRelevant,x.IsTimeBound,
             x.Professions.OrderBy(p=>p.Profession.Name).Select(p=>new LookupDto(p.ProfessionId,p.Profession.Name)).ToList()))
         .ToListAsync(ct);
@@ -26,7 +26,7 @@ public sealed class KpiRepository(KpiDbContext db) : IKpiRepository
             &&(period==null||((x.ValidFrom==null||x.ValidFrom<=period.EndDate)&&(x.ValidTo==null||x.ValidTo>=period.StartDate))))
         .OrderBy(x=>x.IsCommon)
         .ThenBy(x=>x.DisplayOrder)
-        .Select(x=>new KpiDto(x.Id,x.Title,x.Description,x.ProfessionId,x.Profession==null?null:x.Profession.Name,x.IsCommon,x.DisplayOrder,x.IsActive,
+        .Select(x=>new KpiDto(x.Id,KpiQuestionText.CapitalizeWords(x.Title),x.Description,x.ProfessionId,x.Profession==null?null:x.Profession.Name,x.IsCommon,x.DisplayOrder,x.IsActive,
             x.Category,x.CompanyGoalId,x.CompanyGoal==null?null:x.CompanyGoal.Name,x.MeasurementType,x.Unit,x.TargetValue,x.TargetDirection,x.WeightPercent,x.DataSource,x.ReviewFrequency,x.ValidFrom,x.ValidTo,x.IsSpecific,x.IsMeasurable,x.IsAchievable,x.IsRelevant,x.IsTimeBound,
             x.Professions.OrderBy(p=>p.Profession.Name).Select(p=>new LookupDto(p.ProfessionId,p.Profession.Name)).ToList()))
         .ToListAsync(ct);
@@ -37,7 +37,7 @@ public sealed class KpiRepository(KpiDbContext db) : IKpiRepository
         DateOnly? validFrom=null,DateOnly? validTo=null,bool isSpecific=false,bool isMeasurable=false,bool isAchievable=false,bool isRelevant=false,bool isTimeBound=false,
         IReadOnlyList<int>? professionIds=null)
     {
-        title=title.Trim(); if(string.IsNullOrWhiteSpace(title)) throw new ValidationException("KPI adı boş olamaz."); if(displayOrder<1) throw new ValidationException("Sıralama 1 veya daha büyük olmalıdır.");
+        title=KpiQuestionText.CapitalizeWords(title.Trim()); if(string.IsNullOrWhiteSpace(title)) throw new ValidationException("KPI adı boş olamaz."); if(displayOrder<1) throw new ValidationException("Sıralama 1 veya daha büyük olmalıdır.");
         if(weightPercent is < 0 or > 100) throw new ValidationException("KPI ağırlığı 0 ile 100 arasında olmalıdır.");
         if(measurementType != KpiMeasurementType.ManualScore && targetValue is null) throw new ValidationException("Sayısal KPI için hedef değer girilmelidir.");
         if(validFrom is not null && validTo is not null && validTo < validFrom) throw new ValidationException("Geçerlilik bitişi başlangıçtan önce olamaz.");

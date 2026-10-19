@@ -13,7 +13,7 @@ public interface ISecuritySeeder
 {
     Task<IReadOnlyList<SecurityBootstrapAccount>> SeedAsync(CancellationToken cancellationToken = default);
 }
-public sealed record SecurityBootstrapOptions(string? Password);
+public sealed record SecurityBootstrapOptions(string? Password, bool RequireConfiguredPassword = false);
 
 internal static class PasswordHashing
 {
@@ -55,7 +55,12 @@ public sealed class SecuritySeeder(KpiDbContext db, SecurityBootstrapOptions opt
         foreach (var role in roles.Values)
         foreach (var permission in Enum.GetValues<AppPermission>())
         {
-            if (await db.RolePermissions.AnyAsync(x => x.RoleId == role.Id && x.Permission == permission, ct)) continue;
+            var existing = await db.RolePermissions.SingleOrDefaultAsync(x => x.RoleId == role.Id && x.Permission == permission, ct);
+            if (existing is not null)
+            {
+                if (role.Code == RoleCodes.Administrator) existing.IsAllowed = true;
+                continue;
+            }
             db.RolePermissions.Add(new RolePermission { RoleId = role.Id, Permission = permission, IsAllowed = DefaultAllowed(role.Code, permission) });
         }
         var created = new List<SecurityBootstrapAccount>();
@@ -81,27 +86,18 @@ public sealed class SecuritySeeder(KpiDbContext db, SecurityBootstrapOptions opt
         ICollection<SecurityBootstrapAccount> created, CancellationToken ct)
     {
         var existing = await db.AppUsers.SingleOrDefaultAsync(x => x.UserName == userName, ct);
+        if (existing is not null) return;
+        if (options.RequireConfiguredPassword && string.IsNullOrWhiteSpace(options.Password))
+            throw new ValidationException("Üretimde ilk hesapları oluşturmak için Authentication:BootstrapPassword güvenli ortam yapılandırmasında tanımlanmalıdır.");
         var password = string.IsNullOrWhiteSpace(options.Password) ? CreatePassword() : options.Password;
         AuthenticationRepository.ValidatePassword(password);
-        if (existing is not null)
-        {
-            if (existing.MustChangePassword && !string.IsNullOrWhiteSpace(options.Password))
-            {
-                existing.PasswordHash = PasswordHashing.Hash(password);
-                existing.RoleId = roleId;
-                existing.DisplayName = displayName;
-                existing.IsActive = true;
-                created.Add(new(userName, displayName, password));
-            }
-            return;
-        }
         db.AppUsers.Add(new AppUser
         {
             UserName = userName,
             DisplayName = displayName,
             RoleId = roleId,
             PasswordHash = PasswordHashing.Hash(password),
-            MustChangePassword = true
+            MustChangePassword = false
         });
         created.Add(new(userName, displayName, password));
     }
