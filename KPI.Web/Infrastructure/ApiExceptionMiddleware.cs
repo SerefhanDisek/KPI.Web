@@ -5,8 +5,14 @@ namespace KPI.Web.Infrastructure;
 
 public sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExceptionMiddleware> logger)
 {
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, DatabaseStartup databaseStartup)
     {
+        if (context.Request.Path.StartsWithSegments("/api") && !databaseStartup.IsReady)
+        {
+            await WriteProblemAsync(context, StatusCodes.Status503ServiceUnavailable, "Veritabanı hazır değil", databaseStartup.StatusMessage);
+            return;
+        }
+
         try
         {
             await next(context);

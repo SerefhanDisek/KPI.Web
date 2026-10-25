@@ -135,7 +135,10 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
 
     public async Task<IReadOnlyList<ManagerDashboardDto>> GetManagerDashboardAsync(int? periodId, CancellationToken ct = default)
     {
-        var managers = await db.AppUsers.AsNoTracking().Where(x => x.IsActive && (x.Role.Code == RoleCodes.FirstManager || x.Role.Code == RoleCodes.SecondManager))
+        var managers = await db.AppUsers.AsNoTracking().Where(x => x.IsActive && x.Role.IsActive
+                && (x.Role.Code == RoleCodes.FirstManager || x.Role.Code == RoleCodes.SecondManager
+                    || db.Employees.Any(employee => employee.FirstManagerUserId == x.Id || employee.SecondManagerUserId == x.Id)
+                    || db.EmployeeEvaluations.Any(evaluation => evaluation.EvaluatorUserId == x.Id)))
             .Select(x => new { x.Id, x.DisplayName, RoleCode=x.Role.Code, RoleName=x.Role.Name }).ToListAsync(ct);
         var result = new List<ManagerDashboardDto>();
         foreach (var manager in managers)

@@ -37,14 +37,15 @@ builder.Services.AddControllers(options =>
 });
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(
-    builder.Configuration.GetConnectionString("KpiDatabase")
-    ?? throw new InvalidOperationException("KpiDatabase bağlantı bilgisi bulunamadı."),
+    builder.Configuration.GetConnectionString("KpiDatabase"),
     builder.Configuration["Authentication:BootstrapPassword"], builder.Environment.IsDevelopment());
+builder.Services.AddSingleton<DatabaseStartup>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<DatabaseStartup>());
 
 var app = builder.Build();
 
-app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseMiddleware<BrowserSecurityMiddleware>();
+app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseDefaultFiles();
 var staticFiles = new StaticFileOptions
 {
@@ -62,5 +63,4 @@ app.MapControllers();
 app.MapFallback("/api/{**path}", context => { context.Response.StatusCode = StatusCodes.Status404NotFound; return Task.CompletedTask; });
 app.MapFallbackToFile("index.html", staticFiles);
 
-await DatabaseStartup.TryInitializeAsync(app.Services, app.Logger, app.Environment.IsDevelopment());
 await app.RunAsync();

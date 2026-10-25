@@ -5,7 +5,8 @@ KPI Web; Domain, Application, Infrastructure ve ASP.NET Core Web katmanlarını 
 ## Gereksinimler
 
 - .NET 10 SDK
-- Erişilebilir SQL Server / SQL Server Express
+- Aynı bilgisayarda kurulu ve hizmeti çalışan SQL Server / SQL Server Express veritabanı motoru (yalnızca SSMS kurulumu yeterli değildir)
+- Projeyi çalıştıran Windows hesabının SQL Server'a giriş, ilk kurulumda veritabanı oluşturma ve şema güncelleme izinleri
 
 ## Çalıştırma
 
@@ -20,14 +21,18 @@ Tarayıcı adresi geliştirme profilinde `https://localhost:7238` olarak açıl�
 
 ## Veritabanı bağlantısı
 
-Varsayılan bağlantı `KPI.Web/appsettings.json` içindeki `ConnectionStrings:KpiDatabase` değeridir. Ortama özel bağlantıyı dosyaya parola yazmadan environment variable ile değiştirebilirsiniz:
+Varsayılan olarak `ConnectionStrings:KpiDatabase` boştur. Uygulama bilgisayardaki varsayılan SQL Server, `SQLEXPRESS` ve kayıtlı diğer isimli instance'ları otomatik bulur ve Windows hesabıyla bağlanır. Erişilebilen mevcut `kpi_evaluation_db` veritabanına öncelik verir; yoksa veritabanı oluşturma izni bulunan bir instance seçer. Yerel bağlantı shared memory üzerinden yapılır; SQL Server Browser, TCP/IP, port veya güvenlik duvarı ayarı gerektirmez.
+
+Proje açıldığında veritabanı, tablolar, başlangıç verileri ve ilk kullanıcılar otomatik hazırlanır. Elle SQL betiği çalıştırmak, SSMS açmak veya `dotnet ef database update` komutu kullanmak gerekmez. Aynı hazırlık publish çıktısında da çalışır. Sonraki açılışlarda mevcut veritabanı güncellenir; kayıtlar ve kullanıcı parolaları korunur.
+
+SQL Server izinleri kurulum sırasında verilmiş olmalıdır; uygulama kendisine sunucu yetkisi vermez. SQL Server kullanılamıyorsa arayüz açık kalır, API açıklayıcı bir 503 yanıtı verir ve hazırlık işlemi 15 saniye arayla yeniden denenir. Sorun giderildikten sonra projeyi yeniden başlatmadan sayfadaki **Tekrar dene** işlemi kullanılabilir.
+
+Uzak sunucu, SQL kullanıcı adı/parolası veya belirli bir instance kullanmak için `ConnectionStrings:KpiDatabase` değerini environment variable ile tanımlayabilirsiniz. Açıkça verilen bağlantı başka bir sunucuya otomatik yönlendirilmez:
 
 ```powershell
 $env:ConnectionStrings__KpiDatabase = "Server=.\SQLEXPRESS;Database=kpi_evaluation_db;Integrated Security=True;TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=True"
 dotnet run --project KPI.Web
 ```
-
-Uygulama açılışta mevcut migration ve başlangıç verilerini uygular. SQL Server geçici olarak erişilemezse web arayüzü açık kalır ve bağlantı durumu ekranda gösterilir.
 
 İlk çalıştırmada yönetici, 1. amir, 2. amir ve İnsan Kaynakları hesapları oluşturulur. Geliştirme ortamında geçici parolalar oluşturma sırasında uygulama konsolunda gösterilir. `Authentication__BootstrapPassword` ile açıkça yapılandırılmadıkça sabit bir başlangıç parolası yoktur.
 
@@ -53,7 +58,7 @@ Aktif **Sistem Yöneticisi** tüm uygulama izinlerine her zaman sahiptir; bu rol
 - İki sekmede aynı taslak açılmışsa eski sürümdeki değişiklikler güncel kaydı ezmez. Uyarı sonrasında yerel puan ve notlar ekranda kalır; **Taslağı yeniden yükle** ile güncel kayıt açık onayla alınabilir. API istemcileri, düzenleme yanıtındaki `updatedAt` değerini değiştirmeden güncelleme isteğinin `expectedUpdatedAt` alanında göndermelidir; ilk güncellemede değer `null` olabilir.
 - **Değerlendirme Yap** ekranında seçilen manuel puana tekrar tıklamak seçimi kaldırır; puan özeti güncellenir, notlar korunur. Eksik puan varken kalıcı kayıt yapılamaz.
 - **Değerlendirmeler** ekranındaki çalışan, meslek ve dönem filtreleri açılır kutulardan birden fazla seçim yapılmasını destekler. Filtreler birlikte uygulanır; ad değişikliklerinden etkilenmemek için kayıt kimlikleri kullanılır.
-- Gösterge panelindeki amir kartlarında **Değerlendirmeleri görüntüle** işlemi, seçili dönemde ilgili amirin hazırladığı ve kullanıcının erişebildiği kayıtları dialog içinde açar. Çalışan/ekip araması ve durum filtresi kullanılabilir; **Ayrıntıyı görüntüle** ile KPI puanları ve notlar incelenir. Listeye dönüşte filtreler korunur. Bu görünüm düzenleme veya onaylama yetkisi vermez.
+- Gösterge panelindeki amir kartlarında **Değerlendirmeleri görüntüle** işlemi, seçili dönemde ilgili amirin hazırladığı ve kullanıcının erişebildiği kayıtları dialog içinde açar. Kartlar, amir rolüne ek olarak çalışan-amir atamalarını ve kayıtlı değerlendirmelerin yazarlarını da dikkate alır; bir amirin Sistem Yöneticisi rolüne geçirilmesi kartını veya geçmiş puanlamalarını kaldırmaz. Çalışan/ekip araması ve durum filtresi kullanılabilir; **Ayrıntıyı görüntüle** ile KPI puanları ve notlar incelenir. Listeye dönüşte filtreler korunur. Bu görünüm düzenleme veya onaylama yetkisi vermez.
 - **Kalıcı Kaydet**, oluşturma ve onaylama yetkisiyle kaydı doğrudan onaylar; ayrıca onaya gönderme adımı yoktur. Kalıcı kayıt değiştirilemez.
 - **İzin Takibi**, yalnızca **Excel yükle**, **Şablon indir** ve çalışan izinlerini listeleme işlemlerini sunar. Çalışan, ekip ve tarih filtreleri ile sayfalama kullanılabilir; elle ekleme, düzenleme ve pasife alma ekranları yoktur. İzin bakiyesi veya iş günü hesabı yapılmaz.
 - Yetkilendirme ekranında **İzin takibi · Görüntüle** ve **İzin listesi · Excel yükleme** izinleri rollere atanır. Excel yüklemek için ikisi de gereklidir. Yalnızca görüntüleme yetkisi yükleme yetkisi vermez.

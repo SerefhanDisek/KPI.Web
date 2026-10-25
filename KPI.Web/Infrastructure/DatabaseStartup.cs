@@ -2,26 +2,51 @@ using KpiEvaluation.Infrastructure;
 
 namespace KPI.Web.Infrastructure;
 
-public static class DatabaseStartup
+public sealed class DatabaseStartup(IServiceProvider services, ILogger<DatabaseStartup> logger, IWebHostEnvironment environment) : BackgroundService
 {
-    public static async Task TryInitializeAsync(IServiceProvider services, ILogger logger, bool isDevelopment = false)
+    private volatile bool isReady;
+    public bool IsReady => isReady;
+    public string StatusMessage { get; private set; } = "Veritabanı hazırlanıyor. Lütfen kısa süre sonra tekrar deneyin.";
+
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await TryInitializeAsync(cancellationToken);
+        await base.StartAsync(cancellationToken);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!IsReady)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+            await TryInitializeAsync(stoppingToken);
+        }
+    }
+
+    private async Task TryInitializeAsync(CancellationToken cancellationToken)
     {
         try
         {
+            await services.GetRequiredService<SqlServerConnectionResolver>().ResolveAsync(cancellationToken);
             await using var scope = services.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>().InitializeAsync();
-            var accounts = await scope.ServiceProvider.GetRequiredService<ISecuritySeeder>().SeedAsync();
+            await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>().InitializeAsync(cancellationToken);
+            var accounts = await scope.ServiceProvider.GetRequiredService<ISecuritySeeder>().SeedAsync(cancellationToken);
             foreach (var account in accounts)
             {
-                if (isDevelopment) logger.LogWarning("İlk kullanım hesabı oluşturuldu: {UserName} / {Password}", account.UserName, account.TemporaryPassword);
+                if (environment.IsDevelopment()) logger.LogWarning("İlk kullanım hesabı oluşturuldu: {UserName} / {Password}", account.UserName, account.TemporaryPassword);
                 else logger.LogWarning("İlk kullanım hesabı hazırlandı: {UserName}. Başlangıç parolası güvenli ortam yapılandırmasından yönetilmelidir.", account.UserName);
             }
+            isReady = true;
             logger.LogInformation("KPI veritabanı kullanıma hazır.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception)
         {
-            logger.LogWarning(exception,
-                "KPI veritabanı başlangıçta hazırlanamadı. Uygulama açık kalacak ve bağlantı sonraki isteklerde yeniden denenebilecek.");
+            StatusMessage = SqlServerConnectionResolver.GetInitializationFailureMessage(exception);
+            logger.LogWarning(exception, "KPI veritabanı hazırlanamadı. Başlangıç işlemi 15 saniye sonra yeniden denenecek.");
         }
     }
 }

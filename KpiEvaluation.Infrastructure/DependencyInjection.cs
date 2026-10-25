@@ -2,14 +2,16 @@ using KpiEvaluation.Application.Repositories;
 using KpiEvaluation.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace KpiEvaluation.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, string connectionString, string? bootstrapPassword = null, bool isDevelopment = true)
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, string? connectionString, string? bootstrapPassword = null, bool isDevelopment = true)
     {
-        services.AddDbContext<KpiDbContext>(options => options.UseSqlServer(connectionString));
+        services.AddSingleton(provider => new SqlServerConnectionResolver(connectionString, provider.GetRequiredService<ILogger<SqlServerConnectionResolver>>()));
+        services.AddDbContext<KpiDbContext>((provider, options) => options.UseSqlServer(provider.GetRequiredService<SqlServerConnectionResolver>().ConnectionString));
         services.AddScoped<IDatabaseInitializer, DatabaseInitializer>();
         services.AddScoped<IEmployeeRepository, EmployeeRepository>();
         services.AddScoped<IEmployeeLeaveRepository, EmployeeLeaveRepository>();

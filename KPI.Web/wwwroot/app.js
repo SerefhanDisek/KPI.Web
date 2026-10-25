@@ -805,20 +805,23 @@ function renderLeaves(data) {
   const filter=state.leaveFilters;
   const pageCount=Math.max(1,Math.ceil(data.totalCount/data.pageSize));
   app.innerHTML=`${pageHead('İzin Takibi','Excel dosyasından yüklenen çalışan izinlerini görüntüleyin.')}${spreadsheetActions(hasPermission(12),true)}
-    <section class="card"><div class="card-body"><form class="toolbar" id="leave-filters">
+    <section class="card"><div class="card-body"><div class="toolbar" id="leave-filters">
       ${selectionFilter('leave-employee','Çalışan',state.leaveEmployees,filter.employeeId,'Tüm çalışanlar',{multiple:false})}
       ${selectionFilter('leave-profession','Ekip (meslek grubu)',state.leaveProfessions,filter.professionId,'Tüm ekipler',{multiple:false})}
       <div class="field"><label for="leave-from">Başlangıç</label><input class="input" type="date" id="leave-from" name="from" value="${esc(filter.from)}"></div>
       <div class="field"><label for="leave-to">Bitiş</label><input class="input" type="date" id="leave-to" name="to" value="${esc(filter.to)}"></div>
-      <button class="button secondary" type="submit">Filtrele</button></form></div>
+      </div></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Çalışan</th><th>Ekip</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Açıklama</th></tr></thead><tbody>${data.items.length?data.items.map(row=>`<tr><td>${esc(row.employeeName)}</td><td>${esc(row.professionName)}</td><td>${esc(row.leaveType)}</td><td>${formatDate(row.startDate)}</td><td>${formatDate(row.endDate)}</td><td>${esc(row.note||'—')}</td></tr>`).join(''):`<tr><td colspan="6">${emptyState('İzin kaydı bulunamadı','İzinleri görmek için Excel yükleyin veya filtreleri değiştirin.')}</td></tr>`}</tbody></table></div>
       <div class="card-body actions"><span>${data.totalCount} kayıt · Sayfa ${data.page} / ${pageCount}</span><button class="button secondary" id="leave-previous" ${data.page>1?'':'disabled'}>Önceki</button><button class="button secondary" id="leave-next" ${data.page<pageCount?'':'disabled'}>Sonraki</button></div></section>`;
-  document.querySelector('#leave-filters').onsubmit=event=>{
-    event.preventDefault();const form=new FormData(event.currentTarget);
-    state.leaveFilters={employeeId:selectedFilterValues('leave-employee')[0]||'',professionId:selectedFilterValues('leave-profession')[0]||'',activeOnly:'true',from:form.get('from'),to:form.get('to'),page:1};
+  const from=document.querySelector('#leave-from'),to=document.querySelector('#leave-to');
+  const apply=()=>{
+    from.max=to.value;to.min=from.value;
+    if(!from.reportValidity() || !to.reportValidity())return;
+    state.leaveFilters={employeeId:selectedFilterValues('leave-employee')[0]||'',professionId:selectedFilterValues('leave-profession')[0]||'',activeOnly:'true',from:from.value,to:to.value,page:1};
     leavesPage();
   };
-  state.filterController=bindSelectionFilters(()=>{},document.querySelector('#leave-filters'));
+  state.filterController=bindSelectionFilters(apply,document.querySelector('#leave-filters'));
+  from.onchange=apply;to.onchange=apply;
   document.querySelector('#leave-previous').onclick=()=>{filter.page--;leavesPage();};
   document.querySelector('#leave-next').onclick=()=>{filter.page++;leavesPage();};
   bindSpreadsheetActions('leaves',()=>({}),leavesPage);
