@@ -8,6 +8,38 @@ namespace KpiEvaluation.Infrastructure.Repositories;
 
 public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepository
 {
+    public async Task DeleteAsync(long evaluationId, int requesterUserId, CancellationToken ct = default)
+    {
+        var evaluation = await db.EmployeeEvaluations.Include(x => x.Details)
+            .SingleOrDefaultAsync(x => x.Id == evaluationId, ct)
+            ?? throw new ValidationException("Değerlendirme bulunamadı.");
+        if (!await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId).AnyAsync(x => x.Id == evaluationId, ct))
+            throw new AuthorizationException();
+        var permission = evaluation.Status == EvaluationStatus.Approved ? AppPermission.EvaluationApprove : AppPermission.EvaluationCreate;
+        var actor = await db.AppUsers.AsNoTracking().Where(x => x.Id == requesterUserId && x.IsActive && x.Role.IsActive)
+            .Select(x => new { x.RoleId, x.Role.Code }).SingleOrDefaultAsync(ct) ?? throw new AuthorizationException();
+        if (actor.Code != RoleCodes.Administrator && !await db.RolePermissions.AnyAsync(x => x.RoleId == actor.RoleId && x.Permission == permission && x.IsAllowed, ct))
+            throw new AuthorizationException();
+        if (evaluation.Status == EvaluationStatus.Approved)
+        {
+            if (evaluation.ApprovedByUserId != requesterUserId)
+                throw new AuthorizationException("Onaylı değerlendirmeyi yalnızca onaylayan kullanıcı silebilir.");
+        }
+        else await EnsureEvaluationEditAccessAsync(evaluation.EvaluatorUserId, requesterUserId, evaluation.Status, ct);
+        var responses = await db.EvaluationEmployeeResponses.Where(x => x.EvaluationId == evaluationId).ToListAsync(ct);
+        db.EvaluationEmployeeResponses.RemoveRange(responses);
+        db.EmployeeEvaluations.Remove(evaluation);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ValidationException("Değerlendirme değişti veya silindi. Listeyi yenileyip tekrar deneyin.");
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 547 })
+        {
+            throw new ValidationException("Değerlendirmeye yeni bir kayıt eklendi. Listeyi yenileyip tekrar deneyin.");
+        }
+    }
+
     public async Task SaveAsync(EvaluationSaveInput input, CancellationToken ct = default, int? evaluatorUserId = null)
     {
         if (evaluatorUserId is not null && input.Status is not (EvaluationStatus.Draft or EvaluationStatus.Completed or EvaluationStatus.Approved))
@@ -124,7 +156,9 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
                 canApprove && x.Status == EvaluationStatus.Completed && (roleCode == RoleCodes.Administrator
                     || (roleCode == RoleCodes.FirstManager && x.Employee.FirstManagerUserId == requesterUserId)
                     || (roleCode == RoleCodes.SecondManager && x.Employee.SecondManagerUserId == requesterUserId)),
-                x.EmployeeId, x.ProfessionIdSnapshot, x.EvaluationPeriodId))
+                x.EmployeeId, x.ProfessionIdSnapshot, x.EvaluationPeriodId,
+                x.Status == EvaluationStatus.Approved ? canApprove && x.ApprovedByUserId == requesterUserId
+                    : canEdit && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator)))
             .ToListAsync(ct);
     }
 

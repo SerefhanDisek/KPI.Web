@@ -8,6 +8,34 @@ namespace KpiEvaluation.Infrastructure.Repositories;
 
 public sealed class EmployeeRepository(KpiDbContext db) : IEmployeeRepository
 {
+    public async Task DeactivateAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.Employees.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Çalışan bulunamadı.");
+        if (!entity.IsActive) return;
+        entity.IsActive = false;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.Employees.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Çalışan bulunamadı.");
+        const string usedMessage = "Çalışan başka kayıtlarda kullanıldığı için silinemez. Pasife alabilirsiniz.";
+        if (await db.EmployeeEvaluations.AnyAsync(x => x.EmployeeId == id, ct)
+            || await db.AppUsers.AnyAsync(x => x.EmployeeId == id, ct)
+            || await db.EmployeeLeaves.AnyAsync(x => x.EmployeeId == id, ct)
+            || await db.DevelopmentItems.AnyAsync(x => x.EmployeeId == id, ct))
+            throw new ValidationException(usedMessage);
+        db.Employees.Remove(entity);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 547 })
+        {
+            throw new ValidationException(usedMessage);
+        }
+    }
+
     public async Task<IReadOnlyList<EmployeeDto>> GetAllAsync(bool activeOnly=false, CancellationToken ct=default) => await db.Employees.AsNoTracking().Where(x=>!activeOnly||x.IsActive).OrderBy(x=>x.FullName).Select(x=>new EmployeeDto(x.Id,x.FullName,x.ProfessionId,x.Profession.Name,x.IsActive,x.FirstManagerUserId,x.FirstManagerUser==null?null:x.FirstManagerUser.DisplayName,x.SecondManagerUserId,x.SecondManagerUser==null?null:x.SecondManagerUser.DisplayName)).ToListAsync(ct);
     public async Task<IReadOnlyList<LookupDto>> GetProfessionsAsync(CancellationToken ct=default) => await db.Professions.AsNoTracking().Where(x=>x.IsActive).OrderBy(x=>x.Name).Select(x=>new LookupDto(x.Id,x.Name)).ToListAsync(ct);
     public async Task<EmployeeDto> SaveAsync(int? id,string fullName,int professionId,bool isActive,CancellationToken ct=default)

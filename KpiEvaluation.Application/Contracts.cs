@@ -24,7 +24,7 @@ public sealed record EvaluationSaveInput(int EmployeeId,int EvaluationPeriodId,s
 public sealed record EvaluationSummaryDto(long Id, string EmployeeName, string ProfessionName, string PeriodName, int TotalScore, decimal AverageScore, DateTime EvaluationDate, string? GeneralNote,
     decimal WeightedScore=0,EvaluationStatus Status=EvaluationStatus.Completed,string? ManagerFeedback=null,string? EmployeeFeedback=null,string? DevelopmentAction=null,DateOnly? FollowUpDate=null,
     int MaximumScore=0,decimal ScorePercentage=0,int? EvaluatorUserId=null,string? EvaluatorName=null,DateTime? ApprovedAt=null,
-    bool CanEdit=false,bool CanApprove=false,int EmployeeId=0,int? ProfessionId=null,int EvaluationPeriodId=0)
+    bool CanEdit=false,bool CanApprove=false,int EmployeeId=0,int? ProfessionId=null,int EvaluationPeriodId=0,bool CanDelete=false)
 {
     public string StatusName => Status switch { EvaluationStatus.Draft=>"Taslak",EvaluationStatus.Completed=>"Tamamlandı",EvaluationStatus.Shared=>"Çalışana İletildi",EvaluationStatus.EmployeeCommented=>"Çalışan Görüşü Alındı",_=>"Onaylandı" };
 }

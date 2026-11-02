@@ -1,9 +1,11 @@
 using KpiEvaluation.Application;
-using KpiEvaluation.Application.Features.Authorization.Commands.SaveEmployeeManagers;
+using KpiEvaluation.Application.Features.Authorization.Commands.DeactivateRole;
+using KpiEvaluation.Application.Features.Authorization.Commands.DeactivateUser;
+using KpiEvaluation.Application.Features.Authorization.Commands.DeleteRole;
+using KpiEvaluation.Application.Features.Authorization.Commands.DeleteUser;
 using KpiEvaluation.Application.Features.Authorization.Commands.SaveRole;
 using KpiEvaluation.Application.Features.Authorization.Commands.SaveRolePermissions;
 using KpiEvaluation.Application.Features.Authorization.Commands.SaveUser;
-using KpiEvaluation.Application.Features.Authorization.Queries.GetEmployeeManagers;
 using KpiEvaluation.Application.Features.Authorization.Queries.GetRolePermissions;
 using KpiEvaluation.Application.Features.Authorization.Queries.GetRoles;
 using KpiEvaluation.Application.Features.Authorization.Queries.GetUsers;
@@ -39,14 +41,31 @@ public sealed class AuthorizationController(ISender sender) : ControllerBase
         return NoContent();
     }
 
-    [HttpGet("employee-managers")]
-    public Task<IReadOnlyList<EmployeeManagerDto>> GetManagers(CancellationToken cancellationToken) => sender.Send(new GetEmployeeManagersQuery(), cancellationToken);
-
-    [HttpPut("employee-managers/{employeeId:int}")]
-    public async Task<IActionResult> SaveManagers(int employeeId, SaveEmployeeManagersCommand command, CancellationToken cancellationToken)
+    [HttpPost("users/{id:int}/deactivate")]
+    public async Task<IActionResult> DeactivateUser(int id, CancellationToken cancellationToken)
     {
-        if (employeeId != command.EmployeeId) return BadRequest();
-        await sender.Send(command, cancellationToken);
+        await sender.Send(new DeactivateUserCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("users/{id:int}")]
+    public async Task<IActionResult> DeleteUser(int id, CancellationToken cancellationToken)
+    {
+        await sender.Send(new DeleteUserCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("roles/{id:int}/deactivate")]
+    public async Task<IActionResult> DeactivateRole(int id, CancellationToken cancellationToken)
+    {
+        await sender.Send(new DeactivateRoleCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("roles/{id:int}")]
+    public async Task<IActionResult> DeleteRole(int id, CancellationToken cancellationToken)
+    {
+        await sender.Send(new DeleteRoleCommand(id), cancellationToken);
         return NoContent();
     }
 }

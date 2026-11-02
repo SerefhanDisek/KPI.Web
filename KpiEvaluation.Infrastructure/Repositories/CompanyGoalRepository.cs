@@ -8,6 +8,31 @@ namespace KpiEvaluation.Infrastructure.Repositories;
 
 public sealed class CompanyGoalRepository(KpiDbContext db) : ICompanyGoalRepository
 {
+    public async Task DeactivateAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.CompanyGoals.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Şirket hedefi bulunamadı.");
+        if (!entity.IsActive) return;
+        entity.IsActive = false;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.CompanyGoals.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Şirket hedefi bulunamadı.");
+        const string usedMessage = "Şirket hedefi başka kayıtlarda kullanıldığı için silinemez. Pasife alabilirsiniz.";
+        if (await db.KpiCriteria.AnyAsync(x => x.CompanyGoalId == id, ct))
+            throw new ValidationException(usedMessage);
+        db.CompanyGoals.Remove(entity);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 547 })
+        {
+            throw new ValidationException(usedMessage);
+        }
+    }
+
     public async Task<IReadOnlyList<CompanyGoalDto>> GetAllAsync(CancellationToken ct = default) =>
         await db.CompanyGoals.AsNoTracking().OrderBy(x => x.Priority).ThenBy(x => x.Name)
             .Select(x => new CompanyGoalDto(x.Id, x.Name, x.Description, x.EvaluationPeriodId,

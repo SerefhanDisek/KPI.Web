@@ -6,6 +6,8 @@ public interface IKpiRepository
 {
     Task<IReadOnlyList<KpiDto>> GetAllAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<KpiDto>> GetForProfessionAsync(int professionId, int? evaluationPeriodId = null, CancellationToken cancellationToken = default);
+    Task DeactivateAsync(int id, CancellationToken cancellationToken = default);
+    Task DeleteAsync(int id, CancellationToken cancellationToken = default);
     Task<KpiDto> SaveAsync(int? id, string title, string? description, int? professionId, bool isCommon, int displayOrder, bool isActive, CancellationToken cancellationToken = default,
         string? category = null, int? companyGoalId = null, KpiMeasurementType measurementType = KpiMeasurementType.ManualScore,
         string? unit = null, decimal? targetValue = null, KpiTargetDirection targetDirection = KpiTargetDirection.AtLeast,

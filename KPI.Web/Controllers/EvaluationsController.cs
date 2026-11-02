@@ -1,5 +1,6 @@
 using KpiEvaluation.Application;
 using KpiEvaluation.Application.Features.Evaluations.Commands.ApproveEvaluation;
+using KpiEvaluation.Application.Features.Evaluations.Commands.DeleteEvaluation;
 using KpiEvaluation.Application.Features.Evaluations.Commands.SaveEvaluation;
 using KpiEvaluation.Application.Features.Evaluations.Commands.UpdateEvaluation;
 using KpiEvaluation.Application.Features.Evaluations.Queries.GetEvaluationDetails;
@@ -51,6 +52,13 @@ public sealed class EvaluationsController(ISender sender) : ControllerBase
     public async Task<IActionResult> Approve(long id, CancellationToken cancellationToken)
     {
         await sender.Send(new ApproveEvaluationCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("{id:long}")]
+    public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
+    {
+        await sender.Send(new DeleteEvaluationCommand(id), cancellationToken);
         return NoContent();
     }
 }

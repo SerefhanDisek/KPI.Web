@@ -25,6 +25,14 @@ public sealed class DatabaseInitializer(KpiDbContext db) : IDatabaseInitializer
         await PrepareLegacyDatabaseAsync(cancellationToken);
         await db.Database.MigrateAsync(cancellationToken);
 
+        await db.Database.ExecuteSqlRawAsync("""
+            IF OBJECT_ID(N'__KpiSeedHistory', N'U') IS NULL
+                CREATE TABLE __KpiSeedHistory (
+                    ScriptName nvarchar(150) NOT NULL CONSTRAINT PK_KpiSeedHistory PRIMARY KEY,
+                    AppliedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
+                );
+            """, cancellationToken);
+
         var databaseDirectory = Path.Combine(AppContext.BaseDirectory, "Database");
         foreach (var scriptName in SeedScripts)
         {
@@ -33,7 +41,23 @@ public sealed class DatabaseInitializer(KpiDbContext db) : IDatabaseInitializer
                 throw new FileNotFoundException($"Başlangıç verisi dosyası bulunamadı: {scriptName}", scriptPath);
 
             var sql = await File.ReadAllTextAsync(scriptPath, cancellationToken);
-            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+            if (scriptName != "05_normalize_kpi_text.sql")
+            {
+                // Re-running creation scripts would restore permanently deleted records.
+                await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+                var applied = await db.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM __KpiSeedHistory WHERE ScriptName = {scriptName}")
+                    .SingleAsync(cancellationToken);
+                if (applied == 0)
+                {
+                    await db.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+                    await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO __KpiSeedHistory (ScriptName) VALUES ({scriptName})", cancellationToken);
+                }
+                await transaction.CommitAsync(cancellationToken);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+            }
         }
     }
 

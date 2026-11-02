@@ -8,6 +8,31 @@ namespace KpiEvaluation.Infrastructure.Repositories;
 
 public sealed class KpiRepository(KpiDbContext db) : IKpiRepository
 {
+    public async Task DeactivateAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.KpiCriteria.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("KPI bulunamadı.");
+        if (!entity.IsActive) return;
+        entity.IsActive = false;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.KpiCriteria.Include(x => x.Professions).SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("KPI bulunamadı.");
+        const string usedMessage = "Bu KPI değerlendirmelerde kullanıldığı için silinemez. Yeni değerlendirmelerde kullanılmaması için pasife alabilirsiniz.";
+        if (await db.EmployeeEvaluationDetails.AnyAsync(x => x.KpiCriterionId == id, ct))
+            throw new ValidationException(usedMessage);
+        db.KpiCriteria.Remove(entity);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 547 })
+        {
+            throw new ValidationException(usedMessage);
+        }
+    }
+
     public async Task<IReadOnlyList<KpiDto>> GetAllAsync(CancellationToken ct=default) => await db.KpiCriteria
         .AsNoTracking()
         .OrderBy(x=>x.IsCommon)

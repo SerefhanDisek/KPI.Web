@@ -236,6 +236,7 @@ function enhancePageSelects() {
 
 function loading() {
   state.filterController?.abort();
+  state.actionMenuController?.abort();
   state.selectController?.abort();
   state.evaluationController?.abort();
   app.innerHTML = '<div class="loading"><div><div class="spinner"></div>Veriler hazırlanıyor…</div></div>';
@@ -280,6 +281,87 @@ function pageHead(title, description, actions = '') {
   return `<div class="page-head"><div><h1>${title}</h1><p>${description}</p></div><div class="actions">${actions}</div></div>`;
 }
 
+function rowActionMenu(id, label, actions) {
+  const menuId = `row-actions-${id}`;
+  return `<div class="row-actions"><button type="button" class="row-action" data-action-menu="${esc(id)}" popovertarget="${esc(menuId)}" aria-label="${esc(label)} · İşlemler" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(menuId)}" title="İşlemler">${icon('edit')}</button><div class="row-action-menu" id="${esc(menuId)}" popover="auto" role="menu" aria-label="${esc(label)} · İşlemler">${actions}</div></div>`;
+}
+
+function managementActionButtons(resource, row) {
+  return `<button type="button" class="row-action" role="menuitem" data-deactivate-record="${row.id}" data-record-resource="${esc(resource)}" ${!row.isActive ? 'disabled' : ''}>Pasife al</button><button type="button" class="row-action danger" role="menuitem" data-delete-record="${row.id}" data-record-resource="${esc(resource)}">Sil</button>`;
+}
+
+function bindManagementActions(resource, rows, refresh) {
+  const change = async (button, permanent) => {
+    const id = Number(permanent ? button.dataset.deleteRecord : button.dataset.deactivateRecord);
+    const row = rows.find(x => x.id === id);
+    const label = row.fullName ?? row.displayName ?? row.name;
+    if (!confirm(permanent ? `“${label}” kalıcı olarak silinsin mi? Bu işlem geri alınamaz. Başka kayıtlarda kullanılan kayıtlar silinemez.` : `“${label}” pasife alınsın mı? Mevcut kayıtlar korunacak.`)) return;
+    const owner = button.closest('.card');
+    const buttons = [...button.closest('.row-actions').querySelectorAll('button')];
+    const disabled = buttons.map(x => x.disabled);
+    buttons.forEach(x => x.disabled = true);
+    try {
+      await api(`/api/${resource}/${id}${permanent ? '' : '/deactivate'}`, {method:permanent?'DELETE':'POST'});
+      if ((resource === 'authorization/users' && id === state.user.id) || (resource === 'authorization/roles' && id === state.user.roleId)) {
+        try { await api('/api/auth/logout', {method:'POST'}); }
+        finally { state.user = null; location.hash = '#dashboard'; showLogin(); }
+        toast(permanent ? 'Hesabınız silindi.' : 'Oturumunuzun erişimi pasife alındı.');
+        return;
+      }
+      if (owner.isConnected) {
+        if (permanent) rows.splice(rows.indexOf(row), 1);
+        else row.isActive = false;
+        refresh();
+      }
+      toast(permanent ? 'Kayıt kalıcı olarak silindi.' : 'Kayıt pasife alındı.');
+    } catch (error) { toast(error.message, 'error'); }
+    finally { buttons.forEach((button,index) => button.disabled = disabled[index]); }
+  };
+  app.querySelectorAll(`[data-record-resource="${resource}"][data-deactivate-record]`).forEach(button => button.onclick = () => change(button, false));
+  app.querySelectorAll(`[data-record-resource="${resource}"][data-delete-record]`).forEach(button => button.onclick = () => change(button, true));
+}
+
+function bindRowActionMenus(root = app) {
+  const controller = new AbortController();
+  const menus = [...root.querySelectorAll('.row-action-menu')];
+  const close = () => menus.filter(menu => menu.matches(':popover-open')).forEach(menu => menu.hidePopover());
+  const position = menu => {
+    const bounds = menu.previousElementSibling.getBoundingClientRect();
+    menu.style.left = `${Math.max(12, Math.min(bounds.right-menu.offsetWidth, innerWidth-menu.offsetWidth-12))}px`;
+    menu.style.top = `${Math.max(12, bounds.bottom+menu.offsetHeight+6 <= innerHeight-12 ? bounds.bottom+6 : bounds.top-menu.offsetHeight-6)}px`;
+  };
+  menus.forEach(menu => {
+    const trigger = menu.previousElementSibling;
+    menu.addEventListener('toggle', event => {
+      trigger.setAttribute('aria-expanded', String(event.newState === 'open'));
+      if (event.newState !== 'open') return;
+      position(menu);
+      menu.querySelector('button:not(:disabled)').focus({preventScroll:true});
+    }, {signal:controller.signal});
+    menu.onkeydown = event => {
+      const items = [...menu.querySelectorAll('button:not(:disabled)')];
+      const index = items.indexOf(document.activeElement);
+      if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key==='Home' ? 0 : event.key==='End' ? items.length-1 : (index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;
+      items[next].focus();
+    };
+  });
+  root.addEventListener('click', event => {
+    if (event.target.closest('.row-action-menu [role="menuitem"]')) close();
+  }, {capture:true,signal:controller.signal});
+  const reposition = () => menus.filter(menu => menu.matches(':popover-open')).forEach(position);
+  window.addEventListener('resize', reposition, {signal:controller.signal});
+  document.addEventListener('scroll', reposition, {capture:true,signal:controller.signal});
+  controller.signal.addEventListener('abort', close, {once:true});
+  return controller;
+}
+
+function bindPageActionMenus() {
+  state.actionMenuController?.abort();
+  state.actionMenuController = bindRowActionMenus();
+}
+
 function emptyState(title, description) {
   return `<div class="empty">${icon('target')}<strong>${title}</strong><span>${description}</span></div>`;
 }
@@ -322,11 +404,11 @@ async function dashboardPage() {
 
 function showManagerEvaluations(manager, periodId) {
   const controller = new AbortController();
-  let rows = [], search = '', status = '', filterController;
+  let rows = [], employeeIds = [], professionIds = [], status = '', filterController, actionController;
   const periodName = state.periods.find(x => String(x.id) === periodId)?.name || 'Tüm dönemler';
   const heading = `${manager.managerName} · Değerlendirmeler`;
   const shell = body => {
-    filterController?.abort();
+    filterController?.abort(); actionController?.abort();
     dialog.classList.add('wide');
     dialog.setAttribute('aria-labelledby', 'manager-dialog-title');
     dialogContent.innerHTML = `<div class="dialog-head"><h2 id="manager-dialog-title" tabindex="-1">${esc(heading)}</h2><button type="button" class="icon-button" data-close aria-label="Kapat">${icon('close')}</button></div><div class="dialog-body"><p class="manager-dialog-context">${esc(manager.roleName)} · ${esc(periodName)}<br>Bu amirin hazırladığı, görüntüleme yetkiniz olan değerlendirmeler.</p>${body}</div><div class="dialog-foot"><button type="button" class="button secondary" data-close>Kapat</button></div>`;
@@ -335,21 +417,28 @@ function showManagerEvaluations(manager, periodId) {
   };
   const render = () => {
     const approved = rows.filter(x => x.status === 4);
+    const employees = [...new Map(rows.map(x => [x.employeeId, {id:x.employeeId, name:x.employeeName}])).values()].sort((a,b) => a.name.localeCompare(b.name, 'tr'));
+    const professions = [...new Map(rows.map(x => [x.professionId, {id:x.professionId, name:x.professionName}])).values()].sort((a,b) => a.name.localeCompare(b.name, 'tr'));
     shell(`<div class="detail-grid"><div class="detail-box"><small>Görüntülenebilir kayıt</small><strong>${rows.length}</strong></div><div class="detail-box"><small>Onaylı / Diğer kayıtlar</small><strong>${approved.length} / ${rows.length-approved.length}</strong></div><div class="detail-box"><small>Onaylı kayıtların ortalaması</small><strong>${approved.length?'%'+formatNumber(approved.reduce((sum,x)=>sum+x.scorePercentage,0)/approved.length):'—'}</strong></div></div>
-      <div class="toolbar"><div class="field"><label for="manager-evaluation-search">Çalışan veya ekip ara</label><input class="input" id="manager-evaluation-search" value="${esc(search)}" type="search"></div>${selectionFilter('manager-evaluation-status','Durum',statusNames.map((name,id)=>({id,name})),status,'Tüm durumlar',{multiple:false})}</div><p id="manager-evaluation-count" role="status"></p><div class="table-wrap" id="manager-evaluation-list"></div>`);
+      <div class="toolbar history-filters">${selectionFilter('manager-evaluation-employee','Çalışan',employees,employeeIds,'Tüm çalışanlar')}${selectionFilter('manager-evaluation-profession','Ekip',professions,professionIds,'Tüm ekipler')}${selectionFilter('manager-evaluation-status','Durum',statusNames.map((name,id)=>({id,name})),status,'Tüm durumlar',{multiple:false})}</div><p id="manager-evaluation-count" role="status"></p><div class="table-wrap" id="manager-evaluation-list"></div>`);
     const apply = () => {
-      const term = search.toLocaleLowerCase('tr-TR');
-      const filtered = rows.filter(x => (!term || `${x.employeeName} ${x.professionName}`.toLocaleLowerCase('tr-TR').includes(term)) && (status==='' || String(x.status)===status));
+      const filtered = rows.filter(x => (!employeeIds.length || employeeIds.includes(String(x.employeeId)))
+        && (!professionIds.length || professionIds.includes(String(x.professionId))) && (status==='' || String(x.status)===status));
       document.querySelector('#manager-evaluation-count').textContent = `${filtered.length} değerlendirme`;
-      document.querySelector('#manager-evaluation-list').innerHTML = filtered.length ? `<table class="table"><thead><tr><th>Çalışan / Ekip</th><th>Dönem / Tarih</th><th>Puan</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${filtered.map(row=>`<tr><td><strong>${esc(row.employeeName)}</strong><br><small>${esc(row.professionName)}</small></td><td>${esc(row.periodName)}<br><small>${formatDate(row.evaluationDate)}</small></td><td>${row.totalScore} / ${row.maximumScore}<br><small>%${formatNumber(row.scorePercentage)}</small></td><td>${statusBadge(row.status)}</td><td><button type="button" class="button secondary" data-manager-evaluation="${row.id}" aria-label="${esc(row.employeeName)} · ${esc(row.periodName)} değerlendirme ayrıntısını görüntüle">${icon('eye')}Ayrıntıyı görüntüle</button></td></tr>`).join('')}</tbody></table>` : emptyState('Değerlendirme bulunamadı', rows.length?'Arama veya durum filtresini değiştirebilirsiniz.':'Bu amir için seçili dönemde görüntüleyebileceğiniz değerlendirme bulunmuyor.');
+      document.querySelector('#manager-evaluation-list').innerHTML = filtered.length ? `<table class="table"><thead><tr><th>Çalışan / Ekip</th><th>Dönem / Tarih</th><th>Puan</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${filtered.map(row=>`<tr><td><strong>${esc(row.employeeName)}</strong><br><small>${esc(row.professionName)}</small></td><td>${esc(row.periodName)}<br><small>${formatDate(row.evaluationDate)}</small></td><td>${row.totalScore} / ${row.maximumScore}<br><small>%${formatNumber(row.scorePercentage)}</small></td><td>${statusBadge(row.status)}</td><td>${rowActionMenu(`manager-evaluation-${row.id}`, `${row.employeeName} · ${row.periodName}`, `<button type="button" class="row-action" role="menuitem" data-manager-evaluation="${row.id}">Ayrıntıyı görüntüle</button>`)}</td></tr>`).join('')}</tbody></table>` : emptyState('Değerlendirme bulunamadı', rows.length?'Çalışan, ekip veya durum filtrelerini değiştirebilirsiniz.':'Bu amir için seçili dönemde görüntüleyebileceğiniz değerlendirme bulunmuyor.');
+      actionController?.abort(); actionController = bindRowActionMenus(dialogContent);
       document.querySelectorAll('[data-manager-evaluation]').forEach(button=>button.onclick=async()=>{
         button.disabled = true;
         try { await showEvaluationDetail(Number(button.dataset.managerEvaluation), rows, render, controller.signal); }
         finally { button.disabled = false; }
       });
     };
-    document.querySelector('#manager-evaluation-search').oninput = event => { search = event.target.value; apply(); };
-    filterController = bindSelectionFilters(() => { status = selectedFilterValues('manager-evaluation-status')[0]||''; apply(); }, dialogContent);
+    filterController = bindSelectionFilters(() => {
+      employeeIds = selectedFilterValues('manager-evaluation-employee');
+      professionIds = selectedFilterValues('manager-evaluation-profession');
+      status = selectedFilterValues('manager-evaluation-status')[0]||'';
+      apply();
+    }, dialogContent);
     apply();
   };
   const load = async () => {
@@ -365,7 +454,7 @@ function showManagerEvaluations(manager, periodId) {
       document.querySelector('#manager-retry').onclick = load;
     }
   };
-  dialog.addEventListener('close', () => { controller.abort(); filterController?.abort(); dialog.removeAttribute('aria-labelledby'); }, {once:true});
+  dialog.addEventListener('close', () => { controller.abort(); filterController?.abort(); actionController?.abort(); dialog.removeAttribute('aria-labelledby'); }, {once:true});
   load();
   dialog.showModal();
 }
@@ -402,10 +491,12 @@ function renderEmployees(rows) {
 }
 
 function employeeRows(rows) {
-  return rows.length ? rows.map(row => `<tr><td><div class="person"><span class="person-avatar">${initials(row.fullName)}</span>${esc(row.fullName)}</div></td><td>${esc(row.professionName)}</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td><div class="row-actions"><button class="row-action" data-employee="${row.id}" aria-label="Düzenle">${icon('edit')}</button></div></td></tr>`).join('') : `<tr><td colspan="4">${emptyState('Çalışan bulunamadı','Arama ölçütlerini değiştirebilirsiniz.')}</td></tr>`;
+  return rows.length ? rows.map(row => `<tr><td><div class="person"><span class="person-avatar">${initials(row.fullName)}</span>${esc(row.fullName)}</div></td><td>${esc(row.professionName)}</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td>${rowActionMenu(`employee-${row.id}`, row.fullName, `<button type="button" class="row-action" role="menuitem" data-employee="${row.id}">Düzenle</button>${managementActionButtons('employees', row)}`)}</td></tr>`).join('') : `<tr><td colspan="4">${emptyState('Çalışan bulunamadı','Arama ölçütlerini değiştirebilirsiniz.')}</td></tr>`;
 }
 
 function bindEmployeeActions() {
+  bindPageActionMenus();
+  bindManagementActions('employees', state.employees, () => document.querySelector('#employee-search').dispatchEvent(new Event('input')));
   document.querySelectorAll('[data-employee]').forEach(button => button.onclick = () => employeeEditor(state.employees.find(x => x.id === Number(button.dataset.employee))));
 }
 
@@ -424,7 +515,9 @@ async function professionsPage() {
 }
 
 function renderSimpleManagement(title, description, rows, itemName, key, editor) {
-  app.innerHTML = `${pageHead(title,description,`<button class="button primary" id="add-simple">${icon('plus')}${itemName} ekle</button>`)}<section class="card"><div class="table-wrap"><table class="table"><thead><tr><th>${itemName} adı</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${rows.map(row => `<tr><td><strong>${esc(row.name)}</strong></td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td><button class="row-action" data-${key}="${row.id}" aria-label="Düzenle">${icon('edit')}</button></td></tr>`).join('')}</tbody></table></div></section>`;
+  app.innerHTML = `${pageHead(title,description,`<button class="button primary" id="add-simple">${icon('plus')}${itemName} ekle</button>`)}<section class="card"><div class="table-wrap"><table class="table"><thead><tr><th>${itemName} adı</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${rows.map(row => `<tr><td><strong>${esc(row.name)}</strong></td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td>${rowActionMenu(`${key}-${row.id}`, row.name, `<button type="button" class="row-action" role="menuitem" data-${key}="${row.id}">Düzenle</button>${managementActionButtons('professions', row)}`)}</td></tr>`).join('')}</tbody></table></div></section>`;
+  bindPageActionMenus();
+  bindManagementActions('professions', rows, () => renderSimpleManagement(title, description, rows, itemName, key, editor));
   document.querySelector('#add-simple').onclick = () => editor();
   document.querySelectorAll(`[data-${key}]`).forEach(button => button.onclick = () => editor(rows.find(x => x.id === Number(button.dataset[key]))));
 }
@@ -443,7 +536,9 @@ async function periodsPage() {
 }
 
 function renderPeriods() {
-  app.innerHTML = `${pageHead('Dönemler','Değerlendirmelerin tarih aralıklarını ve kullanım durumlarını yönetin.',`<button class="button primary" id="add-period">${icon('plus')}Dönem ekle</button>`)}<section class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Dönem</th><th>Başlangıç</th><th>Bitiş</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${state.periods.map(row => `<tr><td><strong>${esc(row.name)}</strong></td><td>${formatDate(row.startDate)}</td><td>${formatDate(row.endDate)}</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td><button class="row-action" data-period="${row.id}" aria-label="Düzenle">${icon('edit')}</button></td></tr>`).join('')}</tbody></table></div></section>`;
+  app.innerHTML = `${pageHead('Dönemler','Değerlendirmelerin tarih aralıklarını ve kullanım durumlarını yönetin.',`<button class="button primary" id="add-period">${icon('plus')}Dönem ekle</button>`)}<section class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Dönem</th><th>Başlangıç</th><th>Bitiş</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${state.periods.map(row => `<tr><td><strong>${esc(row.name)}</strong></td><td>${formatDate(row.startDate)}</td><td>${formatDate(row.endDate)}</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td>${rowActionMenu(`period-${row.id}`, row.name, `<button type="button" class="row-action" role="menuitem" data-period="${row.id}">Düzenle</button>${managementActionButtons('periods', row)}`)}</td></tr>`).join('')}</tbody></table></div></section>`;
+  bindPageActionMenus();
+  bindManagementActions('periods', state.periods, renderPeriods);
   document.querySelector('#add-period').onclick = () => periodEditor();
   document.querySelectorAll('[data-period]').forEach(button => button.onclick = () => periodEditor(state.periods.find(x => x.id === Number(button.dataset.period))));
 }
@@ -462,7 +557,9 @@ async function goalsPage() {
 }
 
 function renderGoals() {
-  app.innerHTML = `${pageHead('Şirket Hedefleri','KPI ölçümlerini stratejik hedefler ve dönemlerle ilişkilendirin.',`<button class="button primary" id="add-goal">${icon('plus')}Hedef ekle</button>`)}<section class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Hedef</th><th>Dönem</th><th>Öncelik</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${state.goals.map(row => `<tr><td><strong>${esc(row.name)}</strong><br><small>${esc(row.description || '')}</small></td><td>${esc(row.periodName || 'Tüm dönemler')}</td><td>${row.priority}</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td><button class="row-action" data-goal="${row.id}" aria-label="Düzenle">${icon('edit')}</button></td></tr>`).join('')}</tbody></table></div></section>`;
+  app.innerHTML = `${pageHead('Şirket Hedefleri','KPI ölçümlerini stratejik hedefler ve dönemlerle ilişkilendirin.',`<button class="button primary" id="add-goal">${icon('plus')}Hedef ekle</button>`)}<section class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Hedef</th><th>Dönem</th><th>Öncelik</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${state.goals.map(row => `<tr><td><strong>${esc(row.name)}</strong><br><small>${esc(row.description || '')}</small></td><td>${esc(row.periodName || 'Tüm dönemler')}</td><td>${row.priority}</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td>${rowActionMenu(`goal-${row.id}`, row.name, `<button type="button" class="row-action" role="menuitem" data-goal="${row.id}">Düzenle</button>${managementActionButtons('goals', row)}`)}</td></tr>`).join('')}</tbody></table></div></section>`;
+  bindPageActionMenus();
+  bindManagementActions('goals', state.goals, renderGoals);
   document.querySelector('#add-goal').onclick = () => goalEditor();
   document.querySelectorAll('[data-goal]').forEach(button => button.onclick = () => goalEditor(state.goals.find(x => x.id === Number(button.dataset.goal))));
 }
@@ -477,8 +574,8 @@ function goalEditor(row = {}) {
 async function kpisPage() {
   loading();
   try {
-    const [kpis, professions, goals] = await Promise.all([api('/api/kpis'), api('/api/professions'), api('/api/goals')]);
-    state.kpis = kpis; state.professions = professions; state.goals = goals;
+    const [kpis, professions] = await Promise.all([api('/api/kpis'), api('/api/professions')]);
+    state.kpis = kpis; state.professions = professions;
     renderKpis(kpis);
   } catch (error) { showError(error, kpisPage); }
 }
@@ -492,18 +589,47 @@ function renderKpis(rows) {
 }
 
 function kpiRows(rows) {
-  return rows.map(row => `<tr><td><strong>${esc(row.title)}</strong><br><small>${esc(row.category || 'Kategorisiz')}</small></td><td>${row.isCommon ? '<span class="badge info">Herkes</span>' : esc(row.professions?.length ? row.professions.map(x => x.name).join(', ') : row.professionName || '—')}</td><td>${esc(row.measurementName)}</td><td>${formatNumber(row.weightPercent)}%</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td><button class="row-action" data-kpi="${row.id}" aria-label="Düzenle">${icon('edit')}</button></td></tr>`).join('');
+  return rows.map(row => `<tr><td><strong>${esc(row.title)}</strong><br><small>${esc(row.category || 'Kategorisiz')}</small></td><td>${row.isCommon ? '<span class="badge info">Herkes</span>' : esc(row.professions?.length ? row.professions.map(x => x.name).join(', ') : row.professionName || '—')}</td><td>${esc(row.measurementName)}</td><td>${formatNumber(row.weightPercent)}%</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td>${rowActionMenu(`kpi-${row.id}`, row.title, `<button type="button" class="row-action" role="menuitem" data-kpi="${row.id}">Düzenle</button><button type="button" class="row-action" role="menuitem" data-deactivate-kpi="${row.id}" ${row.isActive ? '' : 'disabled'}>Pasife al</button><button type="button" class="row-action danger" role="menuitem" data-delete-kpi="${row.id}">Sil</button>`)}</td></tr>`).join('');
 }
 
-function bindKpiActions() { document.querySelectorAll('[data-kpi]').forEach(button => button.onclick = () => kpiEditor(state.kpis.find(x => x.id === Number(button.dataset.kpi)))); }
+function bindKpiActions() {
+  bindPageActionMenus();
+  document.querySelectorAll('[data-kpi]').forEach(button => button.onclick = () => kpiEditor(state.kpis.find(x => x.id === Number(button.dataset.kpi))));
+  document.querySelectorAll('[data-deactivate-kpi]').forEach(button => button.onclick = () => changeKpi(button, false));
+  document.querySelectorAll('[data-delete-kpi]').forEach(button => button.onclick = () => changeKpi(button, true));
+}
 
-function kpiEditor(row = {}) {
-  const measurement = row.measurementType ?? 0;
-  openDialog(row.id ? 'KPI ölçütünü düzenle' : 'Yeni KPI ölçütü', `<div class="form-grid"><div class="field full"><label>KPI başlığı</label><input class="input" name="title" value="${esc(row.title)}" required maxlength="1000"></div><div class="field full"><label>Açıklama</label><textarea class="textarea" name="description">${esc(row.description)}</textarea></div><div class="field"><label>Kategori</label><input class="input" name="category" value="${esc(row.category)}"></div><div class="field"><label>Şirket hedefi</label><select class="filter-select" name="companyGoalId">${optionList(state.goals, row.companyGoalId, 'Hedef seçilmedi')}</select></div><label class="check-row"><input type="checkbox" name="isCommon" id="kpi-common" ${row.isCommon ? 'checked' : ''}> Herkes (tüm ekipler)</label><div class="field"><label>Ekipler (meslek grupları)</label><select class="filter-select multi-select" name="professionIds" id="kpi-profession-field" multiple>${state.professions.map(x => `<option value="${x.id}" ${(row.professions?.length ? row.professions.some(p => p.id === x.id) : row.professionId === x.id) ? 'selected' : ''}>${esc(x.name)}${x.isActive ? '' : ' (Pasif)'}</option>`).join('')}</select><small>Bir veya birden fazla meslek grubu seçin; tüm ekipler için Herkes seçeneğini işaretleyin.</small></div><div class="field"><label>Ölçüm türü</label><select class="filter-select" name="measurementType">${['Manuel 1–5','Yüzde','Adet','Süre','Sayısal'].map((x,i)=>`<option value="${i}" ${measurement===i?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Birim</label><input class="input" name="unit" value="${esc(row.unit)}"></div><div class="field"><label>Hedef değer</label><input class="input" type="number" step="0.01" name="targetValue" value="${row.targetValue ?? ''}"></div><div class="field"><label>Başarı yönü</label><select class="filter-select" name="targetDirection"><option value="0" ${row.targetDirection !== 1 ? 'selected':''}>En az</option><option value="1" ${row.targetDirection === 1 ? 'selected':''}>En fazla</option></select></div><div class="field"><label>Ağırlık (%)</label><input class="input" type="number" step="0.01" min="0" max="100" name="weightPercent" value="${row.weightPercent ?? 0}"></div><div class="field"><label>Sıra</label><input class="input" type="number" min="1" name="displayOrder" value="${row.displayOrder || 1}" required></div><div class="field full"><label>Veri kaynağı</label><input class="input" name="dataSource" value="${esc(row.dataSource)}"></div><label class="check-row"><input type="checkbox" name="isActive" ${row.isActive !== false ? 'checked':''}> Aktif KPI</label></div>`, async form => {
+async function changeKpi(button, permanent) {
+  const id = Number(permanent ? button.dataset.deleteKpi : button.dataset.deactivateKpi);
+  const row = state.kpis.find(x => x.id === id);
+  const message = permanent ? `“${row.title}” kalıcı olarak silinsin mi? Bu işlem geri alınamaz. Değerlendirmelerde kullanılan KPI’lar silinemez.` : `“${row.title}” pasife alınsın mı? Yeni değerlendirmelerde gösterilmeyecek; kayıtlı değerlendirmeler korunacak.`;
+  if (!confirm(message)) return;
+  const table = document.querySelector('#kpi-rows');
+  const actions = button.closest('.row-actions');
+  actions.querySelectorAll('button').forEach(x => x.disabled = true);
+  try {
+    await api(permanent ? `/api/kpis/${id}` : `/api/kpis/${id}/deactivate`, {method:permanent?'DELETE':'POST'});
+    if (document.querySelector('#kpi-rows') === table) {
+      state.kpis = permanent ? state.kpis.filter(x => x.id !== id) : state.kpis.map(x => x.id === id ? {...x, isActive:false} : x);
+      document.querySelector('#kpi-search').dispatchEvent(new Event('input'));
+    }
+    toast(permanent ? 'KPI kalıcı olarak silindi.' : 'KPI pasife alındı.');
+  } catch (error) { toast(error.message, 'error'); }
+  finally { actions.querySelectorAll('button').forEach(x => x.disabled = x.hasAttribute('data-deactivate-kpi') && !row.isActive); }
+}
+
+function kpiEditor(row = {}, {onSaved = kpisPage, professions = state.professions} = {}) {
+  openDialog(row.id ? 'KPI ölçütünü düzenle' : 'Yeni KPI ölçütü', `<div class="form-grid">
+    <div class="field full"><label>KPI başlığı</label><input class="input" name="title" value="${esc(row.title)}" required maxlength="1000"></div>
+    <div class="field full"><label>Açıklama</label><textarea class="textarea" name="description">${esc(row.description)}</textarea></div>
+    <label class="check-row"><input type="checkbox" name="isCommon" id="kpi-common" ${row.isCommon ? 'checked' : ''}> Herkes (tüm ekipler)</label>
+    <div class="field"><label>Ekipler (meslek grupları)</label><select class="filter-select multi-select" name="professionIds" id="kpi-profession-field" multiple>${professions.map(x => `<option value="${x.id}" ${(row.professions?.length ? row.professions.some(p => p.id === x.id) : row.professionId === x.id) ? 'selected' : ''}>${esc(x.name)}${x.isActive ? '' : ' (Pasif)'}</option>`).join('')}</select><small>Bir veya birden fazla meslek grubu seçin; tüm ekipler için Herkes seçeneğini işaretleyin.</small></div>
+    <div class="field"><label>Sıra</label><input class="input" type="number" min="1" name="displayOrder" value="${row.displayOrder || 1}" required></div>
+    <label class="check-row"><input type="checkbox" name="isActive" ${row.isActive !== false ? 'checked':''}> Aktif KPI</label></div>`, async form => {
     const isCommon = form.get('isCommon') === 'on';
-    await api('/api/kpis', { method:'POST', body:JSON.stringify({ id:row.id || null, title:form.get('title'), description:form.get('description'), professionId:null, professionIds:isCommon ? [] : form.getAll('professionIds').map(Number), isCommon, displayOrder:Number(form.get('displayOrder')), isActive:form.get('isActive') === 'on', category:form.get('category'), companyGoalId:form.get('companyGoalId') ? Number(form.get('companyGoalId')) : null, measurementType:Number(form.get('measurementType')), unit:form.get('unit'), targetValue:form.get('targetValue') ? Number(form.get('targetValue')) : null, targetDirection:Number(form.get('targetDirection')), weightPercent:Number(form.get('weightPercent')), dataSource:form.get('dataSource'), reviewFrequency:row.reviewFrequency ?? 2, validFrom:row.validFrom || null, validTo:row.validTo || null, isSpecific:row.isSpecific || false, isMeasurable:row.isMeasurable || false, isAchievable:row.isAchievable || false, isRelevant:row.isRelevant || false, isTimeBound:row.isTimeBound || false }) });
-    toast(row.id ? 'KPI güncellendi.' : 'KPI eklendi.'); await kpisPage();
-  }, true);
+    const saved = await api('/api/kpis', { method:'POST', body:JSON.stringify({ id:row.id || null, title:form.get('title'), description:form.get('description'), professionId:null, professionIds:isCommon ? [] : form.getAll('professionIds').map(Number), isCommon, displayOrder:Number(form.get('displayOrder')), isActive:form.get('isActive') === 'on', category:row.category ?? null, companyGoalId:row.companyGoalId ?? null, measurementType:row.measurementType ?? 0, unit:row.unit ?? null, targetValue:row.targetValue ?? null, targetDirection:row.targetDirection ?? 0, weightPercent:row.weightPercent ?? 0, dataSource:row.dataSource ?? null, reviewFrequency:row.reviewFrequency ?? 2, validFrom:row.validFrom || null, validTo:row.validTo || null, isSpecific:row.isSpecific || false, isMeasurable:row.isMeasurable || false, isAchievable:row.isAchievable || false, isRelevant:row.isRelevant || false, isTimeBound:row.isTimeBound || false }) });
+    toast(row.id ? 'KPI güncellendi.' : 'KPI eklendi.'); await onSaved(saved);
+  });
   const common = document.querySelector('#kpi-common'); const profession = document.querySelector('#kpi-profession-field');
   const sync = () => { profession.disabled = common.checked; profession.required = !common.checked; }; common.onchange = sync; sync();
 }
@@ -524,7 +650,7 @@ async function evaluationPage() {
 }
 
 function renderEvaluation() {
-  app.innerHTML = `${pageHead('Değerlendirme Yap','Çalışanı ve dönemi seçin, her KPI ölçütünü puanlayın.')}
+  app.innerHTML = `${pageHead('Değerlendirme Yap','Çalışanı ve dönemi seçin, her KPI ölçütünü puanlayın.',hasPermission(6)?`<button class="button primary" id="add-evaluation-kpi">${icon('plus')}KPI ekle</button>`:'')}
     <section class="card setup-card"><div class="setup-grid">${selectionFilter('eval-profession','Meslek',state.professions,'','Tüm meslekler',{multiple:false})}<div class="field"><label>Çalışan</label><select class="filter-select" id="eval-employee">${optionList(state.employees,'','Çalışan seçiniz')}</select></div><div class="field"><label>Dönem</label><select class="filter-select" id="eval-period">${optionList(state.periods,'','Dönem seçiniz')}</select></div></div></section>
     <div class="toolbar"><p id="evaluation-state" role="status">Başlamak veya kayıtlı taslağa devam etmek için çalışan ve dönem seçin.</p><button class="button secondary" id="retry-evaluation" hidden>Tekrar dene</button></div>
     <div class="evaluation-layout"><section class="card" id="criteria-card">${emptyState('Değerlendirmeye başlayın','KPI maddelerini görmek için çalışan ve dönem seçin.')}</section><aside class="card summary-card"><div class="card-head"><h2>Değerlendirme özeti</h2></div><div class="card-body" id="evaluation-summary">${evaluationSummary()}</div></aside></div>`;
@@ -532,7 +658,44 @@ function renderEvaluation() {
   document.querySelector('#eval-employee').onchange = loadEvaluationCriteria;
   document.querySelector('#eval-period').onchange = loadEvaluationCriteria;
   document.querySelector('#retry-evaluation').onclick = loadEvaluationCriteria;
+  const addKpi = document.querySelector('#add-evaluation-kpi');
+  if (addKpi) addKpi.onclick = () => evaluationKpiEditor(addKpi);
   enhancePageSelects();
+}
+
+async function evaluationKpiEditor(button) {
+  button.disabled = true;
+  const card = document.querySelector('#criteria-card');
+  try {
+    const professions = await api('/api/professions');
+    if (document.querySelector('#criteria-card') !== card) return;
+    const employee = state.employees.find(x => x.id === Number(document.querySelector('#eval-employee').value));
+    const professionId = employee?.professionId || Number(selectedFilterValues('eval-profession')[0]) || null;
+    kpiEditor({professionId}, {professions, onSaved: async saved => {
+      if (document.querySelector('#criteria-card') !== card) return;
+      if (state.evaluationEdit) {
+        toast('Yeni KPI, yeni değerlendirmelerde kullanılacak. Kayıtlı değerlendirmenin soruları korunur.');
+        return;
+      }
+      if (!state.evaluationReady) return;
+      const employeeId = document.querySelector('#eval-employee').value;
+      const periodId = document.querySelector('#eval-period').value;
+      const selected = state.employees.find(x => String(x.id) === employeeId);
+      try {
+        const items = await api(`/api/kpis/profession/${selected.professionId}?periodId=${periodId}`);
+        if (document.querySelector('#criteria-card') !== card || state.evaluationEdit || !state.evaluationReady
+          || document.querySelector('#eval-employee').value !== employeeId || document.querySelector('#eval-period').value !== periodId) return;
+        const item = items.find(x => x.id === saved.id);
+        if (!item || state.evaluationItems.some(x => x.id === item.id)) return;
+        state.evaluationItems.push({...item, score:null, note:'', actualValue:null});
+        state.evaluationItems.sort((a,b) => Number(a.isCommon)-Number(b.isCommon) || a.displayOrder-b.displayOrder);
+        renderCriteria();
+      } catch (error) {
+        toast(`KPI kaydedildi ancak değerlendirme soruları yenilenemedi: ${error.message}`, 'error');
+      }
+    }});
+  } catch (error) { toast(error.message, 'error'); }
+  finally { button.disabled = false; }
 }
 
 function filterEvaluationEmployees() {
@@ -684,6 +847,7 @@ async function historyPage() {
 }
 
 function renderHistory(rows) {
+  state.filterController?.abort();
   state.historyFilters ||= {employee:[], profession:[], period:[]};
   const filters = state.historyFilters;
   app.innerHTML = `${pageHead('Değerlendirmeler','Taslak, onay bekleyen ve onaylı kayıtları çoklu filtrelerle inceleyin.')}${spreadsheetActions(hasPermission(1))}<section class="card"><div class="card-body"><div class="toolbar history-filters">${selectionFilter('history-employee','Çalışanlar',state.employees,filters.employee,'Tüm çalışanlar')}${selectionFilter('history-profession','Meslekler',state.professions,filters.profession,'Tüm meslekler')}${selectionFilter('history-period','Dönemler',state.periods,filters.period,'Tüm dönemler')}</div></div><div class="table-wrap"><table class="table"><thead><tr><th>Çalışan</th><th>Değerlendiren</th><th>Dönem</th><th>Puan</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="history-rows">${historyRows(rows)}</tbody></table></div></section>`;
@@ -699,8 +863,22 @@ function renderHistory(rows) {
   state.filterController = bindSelectionFilters(apply); apply();
 }
 
-function historyRows(rows){return rows.length?rows.map(row=>`<tr><td><div class="person"><span class="person-avatar">${initials(row.employeeName)}</span><div>${esc(row.employeeName)}<br><small>${esc(row.professionName)}</small></div></div></td><td>${esc(row.evaluatorName||'Sistem')}</td><td>${esc(row.periodName)}</td><td><span class="score ${row.scorePercentage>=80?'good':row.scorePercentage>=60?'mid':'low'}">${row.totalScore} / ${row.maximumScore}<br><small>%${formatNumber(row.scorePercentage)}</small></span></td><td>${statusBadge(row.status)}</td><td><div class="row-actions"><button class="row-action" data-history="${row.id}" aria-label="Detayı görüntüle">${icon('eye')}</button>${row.canEdit?`<button class="row-action" data-edit-evaluation="${row.id}" aria-label="Değerlendirmeyi düzenle">${icon('edit')}</button>`:''}${row.canApprove?`<button class="row-action" data-approve="${row.id}" aria-label="Onayla">${icon('check')}</button>`:''}</div></td></tr>`).join(''):`<tr><td colspan="6">${emptyState('Kayıt bulunamadı','Filtreleri değiştirebilirsiniz.')}</td></tr>`;}
-function bindHistoryActions(){document.querySelectorAll('[data-edit-evaluation]').forEach(button=>button.onclick=()=>editEvaluation(Number(button.dataset.editEvaluation)));document.querySelectorAll('[data-history]').forEach(button=>button.onclick=()=>showEvaluationDetail(Number(button.dataset.history)));document.querySelectorAll('[data-approve]').forEach(button=>button.onclick=()=>approveEvaluation(Number(button.dataset.approve)));}
+function historyRows(rows){return rows.length?rows.map(row=>`<tr><td><div class="person"><span class="person-avatar">${initials(row.employeeName)}</span><div>${esc(row.employeeName)}<br><small>${esc(row.professionName)}</small></div></div></td><td>${esc(row.evaluatorName||'Sistem')}</td><td>${esc(row.periodName)}</td><td><span class="score ${row.scorePercentage>=80?'good':row.scorePercentage>=60?'mid':'low'}">${row.totalScore} / ${row.maximumScore}<br><small>%${formatNumber(row.scorePercentage)}</small></span></td><td>${statusBadge(row.status)}</td><td>${rowActionMenu(`history-${row.id}`, `${row.employeeName} · ${row.periodName}`, `<button type="button" class="row-action" role="menuitem" data-history="${row.id}">Ayrıntıyı görüntüle</button>${row.canEdit?`<button type="button" class="row-action" role="menuitem" data-edit-evaluation="${row.id}">Düzenle</button>`:''}${row.canApprove?`<button type="button" class="row-action" role="menuitem" data-approve="${row.id}">Onayla</button>`:''}${row.canDelete?`<button type="button" class="row-action danger" role="menuitem" data-delete-evaluation="${row.id}">Sil</button>`:''}`)}</td></tr>`).join(''):`<tr><td colspan="6">${emptyState('Kayıt bulunamadı','Filtreleri değiştirebilirsiniz.')}</td></tr>`;}
+function bindHistoryActions(){bindPageActionMenus();document.querySelectorAll('[data-delete-evaluation]').forEach(button=>button.onclick=()=>deleteEvaluation(Number(button.dataset.deleteEvaluation)));document.querySelectorAll('[data-edit-evaluation]').forEach(button=>button.onclick=()=>editEvaluation(Number(button.dataset.editEvaluation)));document.querySelectorAll('[data-history]').forEach(button=>button.onclick=()=>showEvaluationDetail(Number(button.dataset.history)));document.querySelectorAll('[data-approve]').forEach(button=>button.onclick=()=>approveEvaluation(Number(button.dataset.approve)));}
+async function deleteEvaluation(id) {
+  const row = state.history.find(x => x.id === id);
+  if (!row?.canDelete || !confirm(`“${row.employeeName} · ${row.periodName}” değerlendirmesi, KPI puanları ve çalışan yanıtları kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`)) return;
+  const table = document.querySelector('#history-rows');
+  const buttons = [...table.querySelector(`[data-delete-evaluation="${id}"]`).closest('.row-actions').querySelectorAll('button')];
+  buttons.forEach(button => button.disabled = true);
+  try {
+    await api(`/api/evaluations/${id}`, {method:'DELETE'});
+    if (table.isConnected) { state.history.splice(state.history.indexOf(row), 1); renderHistory(state.history); }
+    toast('Değerlendirme kalıcı olarak silindi.');
+  } catch (error) { toast(error.message, 'error'); }
+  finally { buttons.forEach(button => button.disabled = false); }
+}
+
 async function approveEvaluation(id){try{await api(`/api/evaluations/${id}/approve`,{method:'POST'});toast('Değerlendirme onaylandı ve resmî sonuçlara eklendi.');await historyPage();}catch(error){toast(error.message,'error');}}
 
 async function showEvaluationDetail(id, rows = state.history, onBack = null, signal = undefined) {
@@ -736,51 +914,18 @@ async function showEvaluationDetail(id, rows = state.history, onBack = null, sig
   } catch(error) { if (!signal?.aborted) toast(error.message,'error'); }
 }
 
-const retiredPermissions=new Set([9,13,15,17]);
-const permissionNames=['Gösterge paneli','Değerlendirme oluşturma','Değerlendirme onaylama','Değerlendirme geçmişi','Çalışan yönetimi','Meslek yönetimi','KPI yönetimi','Dönem yönetimi','Hedef yönetimi','Sayfa tasarımcısı','Yetkilendirme yönetimi','İzin takibi · Görüntüle','İzin listesi · Excel yükleme','Denetim kayıtları','Çalışan değerlendirme yanıtı','Değerlendirme görevleri','Kalibrasyon karşılaştırması','Yetkinlik/kıdem yönetimi','Bireysel gelişim yönetimi'];
+const retiredPermissions=new Set([9,13,15,17,18]);
+const permissionNames=['Gösterge paneli','Değerlendirme oluşturma','Değerlendirme onaylama','Değerlendirme geçmişi','Çalışan yönetimi','Meslek yönetimi','KPI yönetimi','Dönem yönetimi','Hedef yönetimi','Sayfa tasarımcısı','Yetkilendirme yönetimi','İzin takibi · Görüntüle','İzin listesi · Excel yükleme','Denetim kayıtları','Çalışan değerlendirme yanıtı','Değerlendirme görevleri','Onaylı amir sonuçlarını karşılaştırma','Yetkinlik/kıdem yönetimi','Bireysel gelişim yönetimi'];
 
 function employeeResponseList(rows) {
   return rows.length?rows.map(x=>`<div class="detail-box"><strong>${{0:'Kabul',2:'Görüş'}[x.decision]}</strong><small>${esc(x.userName)} · ${formatDate(x.createdAt)}</small><p>${esc(x.comment||'—')}</p></div>`).join(''):'<p>Henüz çalışan yanıtı yok.</p>';
-}
-
-async function developmentPage() {
-  loading();
-  const filters=state.developmentFilters||{employeeId:'',activeOnly:true,page:1};state.developmentFilters=filters;
-  try {
-    const query=new URLSearchParams({activeOnly:String(filters.activeOnly),page:String(filters.page),pageSize:'50'});if(filters.employeeId)query.set('employeeId',filters.employeeId);
-    const data=await api(`/api/development?${query}`);state.developmentBoard=data;
-    app.innerHTML=`${pageHead('Bireysel Hedefler ve Gelişim','Hedefleri ve gelişim planlarını takip edin; görüşmelerde ilerlemeyi elle güncelleyin.',`<button class="button primary" id="add-development" ${data.employees.length?'':'disabled'}>${icon('plus')}Hedef / plan ekle</button>`)}<section class="card card-body"><div class="toolbar">${selectionFilter('development-employee','Çalışan',data.employees,filters.employeeId,'Tüm çalışanlar',{multiple:false})}<label class="check-row"><input type="checkbox" id="development-active" ${filters.activeOnly?'checked':''}> Yalnızca aktif kayıtlar</label></div><div class="table-wrap"><table class="table"><thead><tr><th>Çalışan</th><th>Hedef / plan</th><th>Hedef tarihi</th><th>İlerleme</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${data.items.length?data.items.map(x=>`<tr><td>${esc(x.employeeName)}</td><td><strong>${esc(x.title)}</strong><br><small>${x.kind===0?'Bireysel hedef':'Gelişim planı'}</small></td><td>${formatDate(x.targetDate)}</td><td>%${formatNumber(x.progress)}</td><td><span class="badge ${x.isActive?'active':'inactive'}">${x.isActive?'Aktif':'Pasif'}</span></td><td><div class="actions"><button class="button secondary" data-development-edit="${x.id}">Düzenle</button><button class="button secondary" data-development-checkin="${x.id}">Görüşmeler</button></div></td></tr>`).join(''):'<tr><td colspan="6">Henüz kayıt yok.</td></tr>'}</tbody></table></div><div class="actions"><button class="button secondary" id="development-prev" ${filters.page<=1?'disabled':''}>Önceki</button><span>${data.totalCount} kayıt · Sayfa ${filters.page}</span><button class="button secondary" id="development-next" ${filters.page*50>=data.totalCount?'disabled':''}>Sonraki</button></div></section>`;
-    const apply=()=>{filters.employeeId=selectedFilterValues('development-employee')[0]||'';filters.activeOnly=document.querySelector('#development-active').checked;filters.page=1;developmentPage();};
-    state.filterController=bindSelectionFilters(apply);document.querySelector('#development-active').onchange=apply;
-    document.querySelector('#add-development').onclick=()=>developmentEditor();
-    document.querySelectorAll('[data-development-edit]').forEach(button=>button.onclick=()=>developmentEditor(data.items.find(x=>x.id===Number(button.dataset.developmentEdit))));
-    document.querySelectorAll('[data-development-checkin]').forEach(button=>button.onclick=()=>developmentCheckIns(data.items.find(x=>x.id===Number(button.dataset.developmentCheckin))));
-    document.querySelector('#development-prev').onclick=()=>{filters.page--;developmentPage();};document.querySelector('#development-next').onclick=()=>{filters.page++;developmentPage();};
-  }catch(error){showError(error,developmentPage);}
-}
-
-function developmentEditor(row={}) {
-  openDialog(row.id?'Hedef / planı düzenle':'Yeni hedef / gelişim planı',`<div class="form-grid"><div class="field"><label>Çalışan</label><select class="filter-select" name="employeeId" ${row.id?'disabled':'required'}>${optionList(state.developmentBoard.employees,row.employeeId)}</select></div><div class="field"><label>Tür</label><select class="filter-select" name="kind"><option value="0" ${row.kind!==1?'selected':''}>Bireysel hedef</option><option value="1" ${row.kind===1?'selected':''}>Gelişim planı</option></select></div><div class="field full"><label>Başlık</label><input class="input" name="title" value="${esc(row.title)}" required maxlength="200"></div><div class="field full"><label>Açıklama / başarı ölçütü</label><textarea class="textarea" name="description" maxlength="2000">${esc(row.description)}</textarea></div><div class="field"><label>Hedef tarihi</label><input class="input" type="date" name="targetDate" value="${esc(row.targetDate)}"></div><div class="field"><label>Elle girilen ilerleme (%)</label><input class="input" type="number" min="0" max="100" step="0.01" name="progress" value="${row.progress??0}" required></div><label class="check-row"><input type="checkbox" name="isActive" ${row.isActive!==false?'checked':''}> Aktif kayıt</label></div>`,async form=>{
-    const isActive=form.get('isActive')==='on';if(row.isActive&&!isActive&&!confirm('Bu hedef / plan pasife alınsın mı?'))throw new Error('İşlem iptal edildi.');
-    await api('/api/development',{method:'POST',body:JSON.stringify({id:row.id||null,employeeId:row.employeeId||Number(form.get('employeeId')),kind:Number(form.get('kind')),title:form.get('title'),description:form.get('description'),targetDate:form.get('targetDate')||null,progress:Number(form.get('progress')),isActive,expectedVersion:row.version||null})});toast('Hedef / plan kaydedildi.');await developmentPage();
-  },true);
-}
-
-async function developmentCheckIns(row) {
-  try {
-    const rows=await api(`/api/development/${row.id}/check-ins`);
-    openDialog(`${row.title} · Görüşmeler`,`<p>${esc(row.description||'')}</p>${rows.length?rows.map(x=>`<div class="detail-box"><strong>%${formatNumber(x.progress)}</strong><small>${esc(x.createdByName)} · ${formatDate(x.createdAt)}</small><p>${esc(x.note)}</p></div>`).join(''):'<p>Henüz görüşme notu yok.</p>'}${row.isActive?`<div class="field"><label>Yeni görüşme notu</label><textarea class="textarea" name="note" maxlength="2000" required></textarea></div><div class="field"><label>Görüşme sonrası ilerleme (%)</label><input class="input" type="number" name="progress" value="${row.progress}" min="0" max="100" step="0.01" required></div>`:'<p>Pasif kayda yeni görüşme eklenemez.</p>'}`,async form=>{
-      await api(`/api/development/${row.id}/check-ins`,{method:'POST',body:JSON.stringify({id:row.id,note:form.get('note'),progress:Number(form.get('progress')),expectedVersion:row.version})});toast('Görüşme kaydedildi, ilerleme güncellendi.');await developmentPage();
-    },true);
-    if(!row.isActive)dialogContent.querySelector('[type="submit"]').hidden=true;
-  }catch(error){toast(error.message,'error');}
 }
 
 async function calibrationPage() {
   loading();
   try {
     const rows=await api('/api/workflow/calibration');
-    app.innerHTML=`${pageHead('Kalibrasyon','Onaylı amir sonuçlarını yan yana karşılaştırın. Fark, en yüksek ve en düşük başarı yüzdesi arasındaki puan farkıdır.')}<section class="card card-body"><div class="toolbar">${selectionFilter('calibration-period','Dönem',[...new Map(rows.map(x=>[x.periodId,{id:x.periodId,name:x.periodName}])).values()],[],'Tüm dönemler')}</div><div id="calibration-list"></div></section>`;
+    app.innerHTML=`${pageHead('Onaylı Amir Sonuçları','Onaylı amir sonuçlarını yan yana karşılaştırın. Fark, en yüksek ve en düşük başarı yüzdesi arasındaki puan farkıdır.')}<section class="card card-body"><div class="toolbar">${selectionFilter('calibration-period','Dönem',[...new Map(rows.map(x=>[x.periodId,{id:x.periodId,name:x.periodName}])).values()],[],'Tüm dönemler')}</div><div id="calibration-list"></div></section>`;
     const render=()=>{
       const periods=selectedFilterValues('calibration-period'); const filtered=rows.filter(x=>!periods.length||periods.includes(String(x.periodId)));
       document.querySelector('#calibration-list').innerHTML=filtered.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Çalışan / ekip</th><th>Dönem</th><th>Amir sonuçları</th><th>Fark (yüzde puan)</th></tr></thead><tbody>${filtered.map(x=>`<tr><td>${esc(x.employeeName)}<br><small>${esc(x.professionName)}</small></td><td>${esc(x.periodName)}</td><td>${x.scores.map(score=>`<div>${esc(score.evaluatorName)}: <strong>%${formatNumber(score.percentage)}</strong></div>`).join('')}</td><td>${x.scores.length>1?formatNumber(x.difference):'İkinci değerlendirme bekleniyor'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('Onaylı sonuç yok','Erişebildiğiniz onaylı değerlendirmeler burada karşılaştırılır.');
@@ -830,29 +975,28 @@ function renderLeaves(data) {
 async function authorizationPage(){
   loading();
   try{
-    const [users,roles,permissions,assignments,employees]=await Promise.all([api('/api/authorization/users'),api('/api/authorization/roles'),api('/api/authorization/permissions'),api('/api/authorization/employee-managers'),api('/api/employees')]);
-    state.authUsers=users;state.roles=roles;state.rolePermissions=permissions;state.assignments=assignments;state.employees=employees;renderAuthorization();
+    const [users,roles,permissions]=await Promise.all([api('/api/authorization/users'),api('/api/authorization/roles'),api('/api/authorization/permissions')]);
+    state.authUsers=users;state.roles=roles;state.rolePermissions=permissions;renderAuthorization();
   }catch(error){showError(error,authorizationPage);}
 }
 function renderAuthorization(){
-  const first=state.authUsers.filter(x=>x.roleCode==='first-manager'),second=state.authUsers.filter(x=>x.roleCode==='second-manager');
-  app.innerHTML=`${pageHead('Yetkilendirme','Kullanıcıları, rolleri, izinleri ve çalışan–amir ilişkilerini yönetin.',`<button class="button secondary" id="add-role">${icon('plus')}Rol ekle</button><button class="button primary" id="add-user">${icon('plus')}Kullanıcı ekle</button>`)}
-  <section class="card" style="margin-bottom:20px"><div class="card-head"><h2>Kullanıcı hesapları</h2></div><div class="table-wrap"><table class="table"><thead><tr><th>Kullanıcı</th><th>Rol</th><th>Çalışan</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${state.authUsers.map(x=>`<tr><td><strong>${esc(x.displayName)}</strong><br><small>${esc(x.userName)}</small></td><td>${esc(x.roleName)}</td><td>${esc(x.employeeName||'—')}</td><td><span class="badge ${x.isActive?'active':'inactive'}">${x.isActive?'Aktif':'Pasif'}</span></td><td><button class="row-action" data-user="${x.id}">${icon('edit')}</button></td></tr>`).join('')}</tbody></table></div></section>
-  <div class="grid-2"><section class="card"><div class="card-head"><h2>Rol ve izin yönetimi</h2></div><div class="card-body">${state.roles.map(role=>`<div class="actions" style="margin-bottom:8px"><button class="button secondary" data-role-permissions="${role.id}" style="flex:1;justify-content:space-between">${esc(role.name)}<span>${state.rolePermissions.filter(x=>x.roleId===role.id&&x.isAllowed&&!retiredPermissions.has(x.permission)).length} izin</span></button><button class="row-action" data-role-edit="${role.id}" aria-label="Rolü düzenle">${icon('edit')}</button></div>`).join('')}</div></section>
-  <section class="card"><div class="card-head"><h2>Amir atamaları</h2></div><div class="card-body" style="max-height:440px;overflow:auto">${state.assignments.map(x=>`<div class="field" style="padding:12px 0;border-bottom:1px solid var(--line)"><label>${esc(x.employeeName)}</label><div class="actions"><select class="filter-select" data-first="${x.employeeId}">${optionList(first,x.firstManagerUserId,'1. Amir')}</select><select class="filter-select" data-second="${x.employeeId}">${optionList(second,x.secondManagerUserId,'2. Amir')}</select><button class="button secondary" data-save-managers="${x.employeeId}">Kaydet</button></div></div>`).join('')}</div></section></div>`;
+  app.innerHTML=`${pageHead('Yetkilendirme','Kullanıcı hesaplarını, rolleri ve rol yetkilerini yönetin.',`<button class="button secondary" id="add-role">${icon('plus')}Rol ekle</button><button class="button primary" id="add-user">${icon('plus')}Kullanıcı ekle</button>`)}
+  <section class="card" style="margin-bottom:20px"><div class="card-head"><h2>Kullanıcı hesapları</h2></div><div class="table-wrap"><table class="table"><thead><tr><th>Kullanıcı</th><th>Rol</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${state.authUsers.map(x=>`<tr><td><strong>${esc(x.displayName)}</strong><br><small>${esc(x.userName)}</small></td><td>${esc(x.roleName)}</td><td><span class="badge ${x.isActive?'active':'inactive'}">${x.isActive?'Aktif':'Pasif'}</span></td><td>${rowActionMenu(`user-${x.id}`, x.displayName, `<button type="button" class="row-action" role="menuitem" data-user="${x.id}">Düzenle</button>${managementActionButtons('authorization/users', x)}`)}</td></tr>`).join('')}</tbody></table></div></section>
+  <section class="card"><div class="card-head"><h2>Rol ve yetki yönetimi</h2></div><div class="card-body">${state.roles.map(role=>`<div class="actions" style="margin-bottom:8px"><span style="flex:1">${esc(role.name)} · ${state.rolePermissions.filter(x=>x.roleId===role.id&&x.isAllowed&&!retiredPermissions.has(x.permission)).length} yetki</span>${rowActionMenu(`role-${role.id}`, role.name, `<button type="button" class="row-action" role="menuitem" data-role-edit="${role.id}">Düzenle</button><button type="button" class="row-action" role="menuitem" data-role-permissions="${role.id}">Yetkileri yönet</button>${managementActionButtons('authorization/roles', role)}`)}</div>`).join('')}</div></section>`;
+  bindPageActionMenus();
+  bindManagementActions('authorization/users', state.authUsers, renderAuthorization);
+  bindManagementActions('authorization/roles', state.roles, renderAuthorization);
   document.querySelector('#add-user').onclick=()=>userEditor();document.querySelector('#add-role').onclick=()=>roleEditor();document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>userEditor(state.authUsers.find(x=>x.id===Number(b.dataset.user))));
   document.querySelectorAll('[data-role-permissions]').forEach(b=>b.onclick=()=>permissionEditor(state.roles.find(x=>x.id===Number(b.dataset.rolePermissions))));document.querySelectorAll('[data-role-edit]').forEach(b=>b.onclick=()=>roleEditor(state.roles.find(x=>x.id===Number(b.dataset.roleEdit))));
-  document.querySelectorAll('[data-save-managers]').forEach(b=>b.onclick=async()=>{const id=Number(b.dataset.saveManagers);try{await api(`/api/authorization/employee-managers/${id}`,{method:'PUT',body:JSON.stringify({employeeId:id,firstManagerUserId:Number(document.querySelector(`[data-first="${id}"]`).value)||null,secondManagerUserId:Number(document.querySelector(`[data-second="${id}"]`).value)||null})});toast('Amir ataması güncellendi.');}catch(error){toast(error.message,'error');}});
-  enhancePageSelects();
 }
-function userEditor(row={}){openDialog(row.id?'Kullanıcıyı düzenle':'Yeni kullanıcı',`<div class="form-grid"><div class="field"><label>Kullanıcı adı</label><input class="input" name="userName" value="${esc(row.userName)}" required></div><div class="field"><label>Görünen ad</label><input class="input" name="displayName" value="${esc(row.displayName)}" required></div><div class="field"><label>Rol</label><select class="filter-select" name="roleId">${state.roles.filter(x=>x.isActive||x.id===row.roleId).map(x=>`<option value="${x.id}" ${row.roleId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div><div class="field"><label>Çalışan hesabı</label><select class="filter-select" name="employeeId">${optionList(state.employees,row.employeeId,'Bağlantı yok')}</select></div><div class="field full"><label>${row.id?'Yeni parola (değiştirmeyecekseniz boş bırakın)':'Parola'}</label><input class="input" type="password" name="password" ${row.id?'':'required'}><small>En az 10 karakter; büyük/küçük harf, rakam ve özel karakter.</small></div><label class="check-row"><input type="checkbox" name="isActive" ${row.isActive!==false?'checked':''}> Aktif kullanıcı</label></div>`,async form=>{await api('/api/authorization/users',{method:'POST',body:JSON.stringify({id:row.id||null,userName:form.get('userName'),displayName:form.get('displayName'),roleId:Number(form.get('roleId')),employeeId:Number(form.get('employeeId'))||null,isActive:form.get('isActive')==='on',password:form.get('password')||null})});toast('Kullanıcı kaydedildi.');await authorizationPage();});}
+function userEditor(row={}){openDialog(row.id?'Kullanıcıyı düzenle':'Yeni kullanıcı',`<div class="form-grid"><div class="field"><label>Kullanıcı adı</label><input class="input" name="userName" value="${esc(row.userName)}" required></div><div class="field"><label>Görünen ad</label><input class="input" name="displayName" value="${esc(row.displayName)}" required></div><div class="field"><label>Rol</label><select class="filter-select" name="roleId">${state.roles.filter(x=>x.isActive||x.id===row.roleId).map(x=>`<option value="${x.id}" ${row.roleId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>${row.id?'':'<div class="field full"><label>İlk giriş parolası</label><input class="input" type="password" name="password" autocomplete="new-password" required><small>En az 10 karakter; büyük/küçük harf, rakam ve özel karakter.</small></div>'}<label class="check-row"><input type="checkbox" name="isActive" ${row.isActive!==false?'checked':''}> Aktif kullanıcı</label></div>`,async form=>{await api('/api/authorization/users',{method:'POST',body:JSON.stringify({id:row.id||null,userName:form.get('userName'),displayName:form.get('displayName'),roleId:Number(form.get('roleId')),employeeId:row.employeeId??null,isActive:form.get('isActive')==='on',password:row.id?null:form.get('password')})});toast('Kullanıcı kaydedildi.');await authorizationPage();});}
 function roleEditor(row={}){openDialog(row.id?'Rolü düzenle':'Yeni rol',`<div class="form-grid"><div class="field"><label>Rol adı</label><input class="input" name="name" value="${esc(row.name)}" required></div><div class="field"><label>Rol kodu</label><input class="input" name="code" value="${esc(row.code)}" ${row.isSystem?'readonly':''} required><small>Küçük harf ve tire kullanın.</small></div><label class="check-row"><input type="checkbox" name="isActive" ${row.isActive!==false?'checked':''}> Aktif rol</label></div>`,async form=>{await api('/api/authorization/roles',{method:'POST',body:JSON.stringify({id:row.id||null,name:form.get('name'),code:form.get('code'),isActive:form.get('isActive')==='on'})});toast('Rol kaydedildi.');await authorizationPage();});}
 function permissionEditor(role) {
   const administrator = role.code==='administrator';
   const active = new Set(state.rolePermissions.filter(x=>x.roleId===role.id&&x.isAllowed).map(x=>x.permission));
-  openDialog(`${role.name} izinleri`, `${administrator?'<p>Sistem yöneticisi tüm izinlere sahiptir. Bu rolün izinleri kaldırılamaz.</p>':''}<div class="permission-grid">${permissionNames.map((name,id)=>retiredPermissions.has(id)?'':`<label class="permission-item"><input type="checkbox" name="permissions" value="${id}" ${administrator||active.has(id)?'checked':''} ${administrator?'disabled':''}>${name}</label>`).join('')}</div>`, async form=>{
+  openDialog(`${role.name} yetkileri`, `${administrator?'<p>Sistem yöneticisi tüm yetkilere sahiptir. Bu rolün yetkileri kaldırılamaz.</p>':''}<div class="permission-grid">${permissionNames.map((name,id)=>retiredPermissions.has(id)?'':`<label class="permission-item"><input type="checkbox" name="permissions" value="${id}" ${administrator||active.has(id)?'checked':''} ${administrator?'disabled':''}>${name}</label>`).join('')}</div>`, async form=>{
     await api(`/api/authorization/permissions/${role.id}`,{method:'PUT',body:JSON.stringify(form.getAll('permissions').map(Number))});
-    toast('Rol izinleri güncellendi.'); await authorizationPage();
+    toast('Rol yetkileri güncellendi.'); await authorizationPage();
   });
 }
 
@@ -872,8 +1016,8 @@ async function bootstrap(){try{await afterLogin(await api('/api/auth/me'));}catc
 document.querySelector('#login-form').onsubmit=async event=>{event.preventDefault();const loginForm=event.currentTarget;const error=document.querySelector('#login-error');error.textContent='';const button=event.submitter;button.disabled=true;try{const form=new FormData(loginForm);const user=await api('/api/auth/login',{method:'POST',body:JSON.stringify({userName:form.get('userName'),password:form.get('password')})});loginForm.reset();await afterLogin(user);}catch(ex){error.textContent=ex.message;}finally{button.disabled=false;}};
 document.querySelector('#user-menu').onclick=()=>{openDialog(state.user.displayName,`<div class="detail-grid"><div class="detail-box"><small>Kullanıcı</small><strong>${esc(state.user.userName)}</strong></div><div class="detail-box"><small>Rol</small><strong>${esc(state.user.roleName)}</strong></div></div><button type="button" class="button secondary" id="change-password">Parola değiştir</button><button type="button" class="button danger" id="logout" style="margin-left:8px">Çıkış yap</button>`,async()=>{});document.querySelector('#dialog-form .dialog-foot').remove();document.querySelector('#change-password').onclick=()=>{dialog.close();openPasswordDialog();};document.querySelector('#logout').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});dialog.close();state.user=null;location.hash='#dashboard';showLogin();};};
 
-Object.assign(titles, {calibration:'Kalibrasyon',development:'Bireysel Hedefler ve Gelişim'});
-const routes = { dashboard:dashboardPage, evaluation:evaluationPage, history:historyPage, employees:employeesPage, professions:professionsPage, kpis:kpisPage, periods:periodsPage, goals:goalsPage, authorization:authorizationPage, leaves:leavesPage, calibration:calibrationPage,development:developmentPage };
+Object.assign(titles, {calibration:'Onaylı Amir Sonuçları'});
+const routes = { dashboard:dashboardPage, evaluation:evaluationPage, history:historyPage, employees:employeesPage, professions:professionsPage, kpis:kpisPage, periods:periodsPage, goals:goalsPage, authorization:authorizationPage, leaves:leavesPage, calibration:calibrationPage };
 async function navigate(){if(!state.user)return;const route=(location.hash||'#dashboard').slice(1);const page=routes[route]||dashboardPage;document.querySelector('#page-name').textContent=titles[route]||titles.dashboard;document.querySelectorAll('[data-route]').forEach(x=>x.classList.toggle('active',x.dataset.route===route));closeMenu();await page();if(app.querySelector('select:not([data-selection-enhanced])'))enhancePageSelects();app.focus({preventScroll:true});}
 function closeMenu(){document.querySelector('#sidebar').classList.remove('open');document.querySelector('#mobile-overlay').classList.remove('open');}
 document.querySelector('#menu-button').onclick=()=>{document.querySelector('#sidebar').classList.add('open');document.querySelector('#mobile-overlay').classList.add('open');};

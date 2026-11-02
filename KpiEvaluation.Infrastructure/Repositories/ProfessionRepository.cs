@@ -8,6 +8,32 @@ namespace KpiEvaluation.Infrastructure.Repositories;
 
 public sealed class ProfessionRepository(KpiDbContext db) : IProfessionRepository
 {
+    public async Task DeactivateAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.Professions.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Meslek bulunamadı.");
+        if (!entity.IsActive) return;
+        entity.IsActive = false;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.Professions.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Meslek bulunamadı.");
+        const string usedMessage = "Meslek başka kayıtlarda kullanıldığı için silinemez. Pasife alabilirsiniz.";
+        if (await db.Employees.AnyAsync(x => x.ProfessionId == id, ct)
+            || await db.KpiCriteria.AnyAsync(x => x.ProfessionId == id || x.Professions.Any(p => p.ProfessionId == id), ct)
+            || await db.CompetencyMatrixEntries.AnyAsync(x => x.ProfessionId == id, ct))
+            throw new ValidationException(usedMessage);
+        db.Professions.Remove(entity);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 547 })
+        {
+            throw new ValidationException(usedMessage);
+        }
+    }
+
     public async Task<IReadOnlyList<ProfessionDto>> GetAllAsync(CancellationToken ct = default) =>
         await db.Professions.AsNoTracking().OrderBy(x => x.Name)
             .Select(x => new ProfessionDto(x.Id, x.Name, x.IsActive)).ToListAsync(ct);

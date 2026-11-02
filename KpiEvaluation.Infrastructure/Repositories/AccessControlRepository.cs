@@ -4,12 +4,68 @@ using System.Text.RegularExpressions;
 using KpiEvaluation.Application;
 using KpiEvaluation.Domain;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using KpiEvaluation.Application.Repositories;
 
 namespace KpiEvaluation.Infrastructure.Repositories;
 
 public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRepository
 {
+    public async Task DeactivateUserAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.AppUsers.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Kullanıcı bulunamadı.");
+        if (!entity.IsActive) return;
+        entity.IsActive = false;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteUserAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.AppUsers.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Kullanıcı bulunamadı.");
+        const string usedMessage = "Kullanıcı başka kayıtlarda kullanıldığı için silinemez. Pasife alabilirsiniz.";
+        if (await db.Employees.AnyAsync(x => x.FirstManagerUserId == id || x.SecondManagerUserId == id, ct)
+            || await db.EmployeeEvaluations.AnyAsync(x => x.EvaluatorUserId == id || x.ApprovedByUserId == id, ct)
+            || await db.EmployeeLeaves.AnyAsync(x => x.CreatedByUserId == id || x.UpdatedByUserId == id, ct)
+            || await db.EvaluationEmployeeResponses.AnyAsync(x => x.UserId == id, ct)
+            || await db.DevelopmentItems.AnyAsync(x => x.CreatedByUserId == id, ct)
+            || await db.DevelopmentCheckIns.AnyAsync(x => x.CreatedByUserId == id, ct)
+            || await db.AuditEntries.AnyAsync(x => x.UserId == id, ct))
+            throw new ValidationException(usedMessage);
+        db.AppUsers.Remove(entity);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 547 })
+        {
+            throw new ValidationException(usedMessage);
+        }
+    }
+
+    public async Task DeactivateRoleAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.AppRoles.SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Rol bulunamadı.");
+        if (!entity.IsActive) return;
+        entity.IsActive = false;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteRoleAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await db.AppRoles.Include(x => x.Permissions).SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new ValidationException("Rol bulunamadı.");
+        const string usedMessage = "Rol başka kayıtlarda kullanıldığı için silinemez. Pasife alabilirsiniz.";
+        if (await db.AppUsers.AnyAsync(x => x.RoleId == id, ct))
+            throw new ValidationException(usedMessage);
+        db.AppRoles.Remove(entity);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 547 })
+        {
+            throw new ValidationException(usedMessage);
+        }
+    }
+
     public async Task<bool> HasPermissionAsync(int userId, AppPermission permission, CancellationToken ct = default)
     {
         if (!Enum.IsDefined(permission)) return false;

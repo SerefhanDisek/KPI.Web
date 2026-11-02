@@ -45,12 +45,20 @@ public sealed class SecuritySeeder(KpiDbContext db, SecurityBootstrapOptions opt
 {
     public async Task<IReadOnlyList<SecurityBootstrapAccount>> SeedAsync(CancellationToken ct = default)
     {
-        await AddRoleAsync("Sistem Yöneticisi", RoleCodes.Administrator, true, ct);
-        await AddRoleAsync("1. Amir", RoleCodes.FirstManager, true, ct);
-        await AddRoleAsync("2. Amir", RoleCodes.SecondManager, true, ct);
-        await AddRoleAsync("Çalışan", RoleCodes.Employee, true, ct);
-        await AddRoleAsync("İnsan Kaynakları", RoleCodes.HumanResources, false, ct);
-        await db.SaveChangesAsync(ct);
+        var trackSeeds = db.Database.IsSqlServer();
+        await using var transaction = trackSeeds && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct) : null;
+        var seedRoles = !trackSeeds || await db.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM __KpiSeedHistory WHERE ScriptName = {"security-roles-v1"}").SingleAsync(ct) == 0;
+        if (seedRoles)
+        {
+            await AddRoleAsync("Sistem Yöneticisi", RoleCodes.Administrator, true, ct);
+            await AddRoleAsync("1. Amir", RoleCodes.FirstManager, true, ct);
+            await AddRoleAsync("2. Amir", RoleCodes.SecondManager, true, ct);
+            await AddRoleAsync("Çalışan", RoleCodes.Employee, true, ct);
+            await AddRoleAsync("İnsan Kaynakları", RoleCodes.HumanResources, false, ct);
+            await db.SaveChangesAsync(ct);
+            if (trackSeeds) await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO __KpiSeedHistory (ScriptName) VALUES ({"security-roles-v1"})", ct);
+        }
         var roles = await db.AppRoles.ToDictionaryAsync(x => x.Code, ct);
         foreach (var role in roles.Values)
         foreach (var permission in Enum.GetValues<AppPermission>())
@@ -64,15 +72,22 @@ public sealed class SecuritySeeder(KpiDbContext db, SecurityBootstrapOptions opt
             db.RolePermissions.Add(new RolePermission { RoleId = role.Id, Permission = permission, IsAllowed = DefaultAllowed(role.Code, permission) });
         }
         var created = new List<SecurityBootstrapAccount>();
-        await AddUserAsync("admin", "Sistem Yöneticisi", roles[RoleCodes.Administrator].Id, created, ct);
-        await AddUserAsync("deniz.ozyurek", "Deniz Özyürek", roles[RoleCodes.FirstManager].Id, created, ct);
-        await AddUserAsync("melih.yurtsever", "Melih Yurtsever", roles[RoleCodes.SecondManager].Id, created, ct);
-        await AddUserAsync("kader.guveren.disek", "Kader Güveren Dişek", roles[RoleCodes.HumanResources].Id, created, ct);
+        var seedUsers = !trackSeeds || await db.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM __KpiSeedHistory WHERE ScriptName = {"security-users-v1"}").SingleAsync(ct) == 0;
+        if (seedUsers)
+        {
+            await AddUserAsync("admin", "Sistem Yöneticisi", roles[RoleCodes.Administrator].Id, created, ct);
+            await AddUserAsync("deniz.ozyurek", "Deniz Özyürek", roles[RoleCodes.FirstManager].Id, created, ct);
+            await AddUserAsync("melih.yurtsever", "Melih Yurtsever", roles[RoleCodes.SecondManager].Id, created, ct);
+            await AddUserAsync("kader.guveren.disek", "Kader Güveren Dişek", roles[RoleCodes.HumanResources].Id, created, ct);
+            await db.SaveChangesAsync(ct);
+            if (trackSeeds) await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO __KpiSeedHistory (ScriptName) VALUES ({"security-users-v1"})", ct);
+        }
         await db.SaveChangesAsync(ct);
-        var firstManagerId = await db.AppUsers.Where(x => x.UserName == "deniz.ozyurek").Select(x => x.Id).SingleAsync(ct);
-        var secondManagerId = await db.AppUsers.Where(x => x.UserName == "melih.yurtsever").Select(x => x.Id).SingleAsync(ct);
-        await db.Employees.Where(x => x.FirstManagerUserId == null).ExecuteUpdateAsync(setters => setters.SetProperty(x => x.FirstManagerUserId, firstManagerId), ct);
-        await db.Employees.Where(x => x.SecondManagerUserId == null).ExecuteUpdateAsync(setters => setters.SetProperty(x => x.SecondManagerUserId, secondManagerId), ct);
+        var firstManagerId = await db.AppUsers.Where(x => x.UserName == "deniz.ozyurek").Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
+        var secondManagerId = await db.AppUsers.Where(x => x.UserName == "melih.yurtsever").Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
+        if (firstManagerId is not null) await db.Employees.Where(x => x.FirstManagerUserId == null).ExecuteUpdateAsync(setters => setters.SetProperty(x => x.FirstManagerUserId, firstManagerId), ct);
+        if (secondManagerId is not null) await db.Employees.Where(x => x.SecondManagerUserId == null).ExecuteUpdateAsync(setters => setters.SetProperty(x => x.SecondManagerUserId, secondManagerId), ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return created;
     }
 

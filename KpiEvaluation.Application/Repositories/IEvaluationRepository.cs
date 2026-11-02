@@ -4,6 +4,7 @@ namespace KpiEvaluation.Application.Repositories;
 
 public interface IEvaluationRepository
 {
+    Task DeleteAsync(long evaluationId, int requesterUserId, CancellationToken cancellationToken = default);
     Task SaveAsync(EvaluationSaveInput input, CancellationToken cancellationToken = default, int? evaluatorUserId = null);
     Task<IReadOnlyList<EvaluationSummaryDto>> GetHistoryAsync(int? employeeId, int? professionId, int? periodId, CancellationToken cancellationToken = default,
         int? requesterUserId = null, int? evaluatorUserId = null);

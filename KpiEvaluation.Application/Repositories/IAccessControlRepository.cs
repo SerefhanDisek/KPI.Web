@@ -4,6 +4,10 @@ namespace KpiEvaluation.Application.Repositories;
 
 public interface IAccessControlRepository
 {
+    Task DeactivateUserAsync(int id, CancellationToken cancellationToken = default);
+    Task DeleteUserAsync(int id, CancellationToken cancellationToken = default);
+    Task DeactivateRoleAsync(int id, CancellationToken cancellationToken = default);
+    Task DeleteRoleAsync(int id, CancellationToken cancellationToken = default);
     Task<bool> HasPermissionAsync(int userId, AppPermission permission, CancellationToken cancellationToken = default);
     Task<AuthenticatedUserDto> GetCurrentAsync(int userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<UserDto>> GetUsersAsync(CancellationToken cancellationToken = default);

@@ -1,4 +1,6 @@
 using KpiEvaluation.Application;
+using KpiEvaluation.Application.Features.Kpis.Commands.DeactivateKpi;
+using KpiEvaluation.Application.Features.Kpis.Commands.DeleteKpi;
 using KpiEvaluation.Application.Features.Kpis.Commands.SaveKpi;
 using KpiEvaluation.Application.Features.Kpis.Queries.GetKpis;
 using KpiEvaluation.Application.Features.Kpis.Queries.GetKpisForProfession;
@@ -23,4 +25,18 @@ public sealed class KpisController(ISender sender) : ControllerBase
     [HttpPost]
     public Task<KpiDto> Save(SaveKpiCommand command, CancellationToken cancellationToken) =>
         sender.Send(command, cancellationToken);
+
+    [HttpPost("{id:int}/deactivate")]
+    public async Task<IActionResult> Deactivate(int id, CancellationToken cancellationToken)
+    {
+        await sender.Send(new DeactivateKpiCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        await sender.Send(new DeleteKpiCommand(id), cancellationToken);
+        return NoContent();
+    }
 }
