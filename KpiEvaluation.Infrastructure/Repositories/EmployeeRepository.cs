@@ -41,10 +41,22 @@ public sealed class EmployeeRepository(KpiDbContext db) : IEmployeeRepository
     public async Task<EmployeeDto> SaveAsync(int? id,string fullName,int professionId,bool isActive,CancellationToken ct=default)
     {
         fullName=fullName.Trim(); if(string.IsNullOrWhiteSpace(fullName)) throw new ValidationException("Çalışan adı boş olamaz.");
-        if(!await db.Professions.AnyAsync(x=>x.Id==professionId&&x.IsActive,ct)) throw new ValidationException("Geçerli bir meslek seçmelisiniz.");
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct) : null;
+        var team = await db.Professions.AsNoTracking().Where(x => x.Id == professionId && x.IsActive)
+            .Select(x => new { x.Name, x.FirstManagerUserId, x.SecondManagerUserId }).SingleOrDefaultAsync(ct)
+            ?? throw new ValidationException("Geçerli bir meslek seçmelisiniz.");
         Employee entity;
+        var inheritManagers = id is null;
         if(id is null) { entity=new Employee{FullName=fullName,ProfessionId=professionId,IsActive=isActive}; db.Employees.Add(entity); }
-        else { entity=await db.Employees.FindAsync([id.Value],ct)??throw new ValidationException("Çalışan bulunamadı."); entity.FullName=fullName; entity.ProfessionId=professionId; entity.IsActive=isActive; entity.UpdatedAt=DateTime.UtcNow; }
-        await db.SaveChangesAsync(ct); var profession=await db.Professions.Where(x=>x.Id==professionId).Select(x=>x.Name).SingleAsync(ct); return new(entity.Id,entity.FullName,entity.ProfessionId,profession,entity.IsActive);
+        else { entity=await db.Employees.FindAsync([id.Value],ct)??throw new ValidationException("Çalışan bulunamadı."); inheritManagers=entity.ProfessionId!=professionId; entity.FullName=fullName; entity.ProfessionId=professionId; entity.IsActive=isActive; entity.UpdatedAt=DateTime.UtcNow; }
+        if (inheritManagers)
+        {
+            entity.FirstManagerUserId = team.FirstManagerUserId;
+            entity.SecondManagerUserId = team.SecondManagerUserId;
+        }
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+        return new(entity.Id,entity.FullName,entity.ProfessionId,team.Name,entity.IsActive);
     }
 }

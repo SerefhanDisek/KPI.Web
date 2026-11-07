@@ -56,11 +56,7 @@ public sealed class EvaluationWorkflowRepository(KpiDbContext db, IEvaluationRep
     public async Task<IReadOnlyList<CalibrationRowDto>> GetCalibrationAsync(int? periodId, int userId, CancellationToken ct)
     {
         var rows = await evaluations.GetHistoryAsync(null, null, periodId, ct, userId);
-        return rows.Where(x => x.Status == EvaluationStatus.Approved).GroupBy(x => new { x.EmployeeId, x.EvaluationPeriodId })
-            .Select(group => new CalibrationRowDto(group.Key.EmployeeId, group.First().EmployeeName, group.Key.EvaluationPeriodId,
-                group.First().PeriodName, group.First().ProfessionName, group.Max(x => x.ScorePercentage) - group.Min(x => x.ScorePercentage),
-                group.OrderBy(x => x.EvaluatorName).ThenBy(x => x.Id).Select(x => new CalibrationScoreDto(x.Id, x.EvaluatorUserId, x.EvaluatorName ?? "Eski kayıt", x.ScorePercentage)).ToList()))
-            .OrderByDescending(x => x.Difference).ThenBy(x => x.EmployeeName).ThenBy(x => x.PeriodId).ToList();
+        return ApprovedManagerResults.Create(rows);
     }
 
     public async Task<AuditPageDto> GetAuditAsync(int page, int pageSize, string? entityType, CancellationToken ct)

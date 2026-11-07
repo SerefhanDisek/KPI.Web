@@ -83,10 +83,25 @@ public sealed class SecuritySeeder(KpiDbContext db, SecurityBootstrapOptions opt
             if (trackSeeds) await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO __KpiSeedHistory (ScriptName) VALUES ({"security-users-v1"})", ct);
         }
         await db.SaveChangesAsync(ct);
-        var firstManagerId = await db.AppUsers.Where(x => x.UserName == "deniz.ozyurek").Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
-        var secondManagerId = await db.AppUsers.Where(x => x.UserName == "melih.yurtsever").Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
-        if (firstManagerId is not null) await db.Employees.Where(x => x.FirstManagerUserId == null).ExecuteUpdateAsync(setters => setters.SetProperty(x => x.FirstManagerUserId, firstManagerId), ct);
-        if (secondManagerId is not null) await db.Employees.Where(x => x.SecondManagerUserId == null).ExecuteUpdateAsync(setters => setters.SetProperty(x => x.SecondManagerUserId, secondManagerId), ct);
+        if (seedUsers && created.Count > 0)
+        {
+            var firstManagerId = await db.AppUsers.Where(x => x.UserName == "deniz.ozyurek").Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
+            var secondManagerId = await db.AppUsers.Where(x => x.UserName == "melih.yurtsever").Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
+            var teams = await db.Professions.Include(x => x.Employees)
+                .Where(x => x.FirstManagerUserId == null && x.SecondManagerUserId == null
+                    && !x.Employees.Any(employee => employee.FirstManagerUserId != null || employee.SecondManagerUserId != null)).ToListAsync(ct);
+            foreach (var team in teams)
+            {
+                team.FirstManagerUserId = firstManagerId;
+                team.SecondManagerUserId = secondManagerId;
+                foreach (var employee in team.Employees)
+                {
+                    employee.FirstManagerUserId = firstManagerId;
+                    employee.SecondManagerUserId = secondManagerId;
+                }
+            }
+            await db.SaveChangesAsync(ct);
+        }
         if (transaction is not null) await transaction.CommitAsync(ct);
         return created;
     }

@@ -11,6 +11,10 @@ public sealed class Profession
     public required string Name { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public int? FirstManagerUserId { get; set; }
+    public AppUser? FirstManagerUser { get; set; }
+    public int? SecondManagerUserId { get; set; }
+    public AppUser? SecondManagerUser { get; set; }
     public ICollection<Employee> Employees { get; set; } = [];
     public ICollection<KpiCriterion> KpiCriteria { get; set; } = [];
 }
@@ -118,6 +122,7 @@ public sealed class EmployeeEvaluation
     public decimal ScorePercentage { get; set; }
     public EvaluationStatus Status { get; set; } = EvaluationStatus.Completed;
     public int? EvaluatorUserId { get; set; }
+    public int? EvaluatorManagerLevelSnapshot { get; set; }
     public AppUser? EvaluatorUser { get; set; }
     public int? ApprovedByUserId { get; set; }
     public AppUser? ApprovedByUser { get; set; }

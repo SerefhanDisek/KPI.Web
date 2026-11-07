@@ -4,11 +4,13 @@ using KpiEvaluation.Application.Features.Authorization.Commands.DeactivateUser;
 using KpiEvaluation.Application.Features.Authorization.Commands.DeleteRole;
 using KpiEvaluation.Application.Features.Authorization.Commands.DeleteUser;
 using KpiEvaluation.Application.Features.Authorization.Commands.SaveRole;
+using KpiEvaluation.Application.Features.Authorization.Commands.SaveTeamManagers;
 using KpiEvaluation.Application.Features.Authorization.Commands.SaveRolePermissions;
 using KpiEvaluation.Application.Features.Authorization.Commands.SaveUser;
 using KpiEvaluation.Application.Features.Authorization.Queries.GetRolePermissions;
 using KpiEvaluation.Application.Features.Authorization.Queries.GetRoles;
 using KpiEvaluation.Application.Features.Authorization.Queries.GetUsers;
+using KpiEvaluation.Application.Features.Authorization.Queries.GetTeamManagers;
 using KpiEvaluation.Domain;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +26,17 @@ public sealed class AuthorizationController(ISender sender) : ControllerBase
 
     [HttpPost("users")]
     public Task<UserDto> SaveUser(UserSaveInput input, CancellationToken cancellationToken) => sender.Send(new SaveUserCommand(input), cancellationToken);
+
+    [HttpGet("team-managers")]
+    public Task<IReadOnlyList<TeamManagerDto>> GetTeamManagers(CancellationToken cancellationToken) =>
+        sender.Send(new GetTeamManagersQuery(), cancellationToken);
+
+    [HttpPut("team-managers/{professionId:int}")]
+    public async Task<IActionResult> SaveTeamManagers(int professionId, SaveTeamManagersCommand command, CancellationToken cancellationToken)
+    {
+        await sender.Send(command with { ProfessionId = professionId }, cancellationToken);
+        return NoContent();
+    }
 
     [HttpGet("roles")]
     public Task<IReadOnlyList<RoleDto>> GetRoles(CancellationToken cancellationToken) => sender.Send(new GetRolesQuery(), cancellationToken);

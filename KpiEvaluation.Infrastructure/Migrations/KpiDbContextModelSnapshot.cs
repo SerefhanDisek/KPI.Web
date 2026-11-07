@@ -448,6 +448,9 @@ namespace KpiEvaluation.Infrastructure.Migrations
                     b.Property<int>("EvaluationPeriodId")
                         .HasColumnType("int");
 
+                    b.Property<int?>("EvaluatorManagerLevelSnapshot")
+                        .HasColumnType("int");
+
                     b.Property<int?>("EvaluatorUserId")
                         .HasColumnType("int");
 
@@ -513,6 +516,8 @@ namespace KpiEvaluation.Infrastructure.Migrations
                     b.ToTable("employee_evaluation", null, t =>
                         {
                             t.HasCheckConstraint("ck_average_score", "([Status] = 0 AND [AverageScore] BETWEEN 0 AND 5) OR [AverageScore] BETWEEN 1 AND 5");
+
+                            t.HasCheckConstraint("ck_evaluator_manager_level", "[EvaluatorManagerLevelSnapshot] IS NULL OR [EvaluatorManagerLevelSnapshot] IN (1, 2)");
 
                             t.HasCheckConstraint("ck_maximum_score", "[MaximumScore] > 0");
 
@@ -923,6 +928,9 @@ namespace KpiEvaluation.Infrastructure.Migrations
                         .HasColumnType("datetime2")
                         .HasDefaultValueSql("SYSUTCDATETIME()");
 
+                    b.Property<int?>("FirstManagerUserId")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -933,10 +941,17 @@ namespace KpiEvaluation.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<int?>("SecondManagerUserId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("FirstManagerUserId");
 
                     b.HasIndex("Name")
                         .IsUnique();
+
+                    b.HasIndex("SecondManagerUserId");
 
                     b.ToTable("profession", (string)null);
                 });
@@ -1182,6 +1197,23 @@ namespace KpiEvaluation.Infrastructure.Migrations
                     b.Navigation("KpiCriterion");
 
                     b.Navigation("Profession");
+                });
+
+            modelBuilder.Entity("KpiEvaluation.Domain.Profession", b =>
+                {
+                    b.HasOne("KpiEvaluation.Domain.AppUser", "FirstManagerUser")
+                        .WithMany()
+                        .HasForeignKey("FirstManagerUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("KpiEvaluation.Domain.AppUser", "SecondManagerUser")
+                        .WithMany()
+                        .HasForeignKey("SecondManagerUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("FirstManagerUser");
+
+                    b.Navigation("SecondManagerUser");
                 });
 
             modelBuilder.Entity("KpiEvaluation.Domain.RolePermission", b =>

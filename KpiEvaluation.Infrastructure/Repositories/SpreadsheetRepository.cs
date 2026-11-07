@@ -108,7 +108,9 @@ public sealed class SpreadsheetRepository(KpiDbContext db, IEmployeeRepository e
                 else
                 {
                     if (group.Count() > 1) throw new ValidationException("Aynı ID bir dosyada tekrar edemez.");
-                    await using var transaction = await db.Database.BeginTransactionAsync(ct);
+                    await using var transaction = resource == SpreadsheetResource.Employees
+                        ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct)
+                        : await db.Database.BeginTransactionAsync(ct);
                     await ImportRowAsync(resource, first, userId, ct);
                     await transaction.CommitAsync(ct);
                     imported++;

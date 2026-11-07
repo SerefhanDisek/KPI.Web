@@ -3,12 +3,12 @@
 ## Geçerli kapsam
 
 - Geçici Kaydet taslağı saklar; Kalıcı Kaydet oluşturma ve onaylama izinleriyle doğrudan onaylar. Yeni bir amir onay zinciri eklenmez.
-- İki amir aynı çalışan/dönem için bağımsız değerlendirme yapar; sonuçlar birleştirilmez.
+- İki amir aynı çalışan/dönem için bağımsız değerlendirme yapar. İki onaylı kayıt tamamlandığında birleşik başarı, 1. amir %70 ve 2. amir %30 ağırlıkla gösterilir; bireysel puanlar korunur.
 - Çalışan görüşü ve kabulü korunur; itiraz süreci kullanıcı isteğiyle kapsamdan çıkarılmıştır.
 - Sayfa tasarımcısı ve buna bağlı low-code geliştirmeleri kullanıcı isteğiyle kaldırılmıştır. Eski sayfa verileri saklanır; menü, tarayıcı akışı ve API erişimi yoktur.
 - E-posta ve Teams entegrasyonları kullanıcı isteğiyle kapsam dışıdır.
 - Değerlendirme Görevleri, Yetkinlik / Kıdem Matrisi ve Denetim Kayıtları ekranları kaldırılmıştır. İzin ekranı yalnızca Excel yükleme ve listeleme içindir.
-- Uygulama dönemsel puanlamaya odaklanır. Bireysel Hedefler ve Gelişim ekranı ve API işlemleri kaldırılmıştır; mevcut kayıtlar korunur. Yetkilendirme yalnızca kullanıcılar, roller ve rol yetkilerini içerir; mevcut çalışan bağlantıları ve amir atamaları korunur.
+- Uygulama dönemsel puanlamaya odaklanır. Bireysel Hedefler ve Gelişim ekranı ve API işlemleri kaldırılmıştır; mevcut kayıtlar korunur. Yetkilendirme kullanıcıları, rolleri, rol yetkilerini ve ekip bazında 1./2. amir bağlılıklarını içerir; mevcut çalışan bağlantıları ve amir atamaları korunur. Amir kartları bağlı ekipleri gösterir.
 
 ## Öncelik ve durum
 
@@ -20,7 +20,7 @@
 | 4 | Çalışan görüşü ve kabulü | Tamamlandı; itiraz iptal | Yetkili çalışan kendi onaylı değerlendirmesine görüş/kabul ekler. Yanıt geçmişi saklanır; onaylı puanlar ve değerlendirme durumu değişmez. |
 | 5 | Denetim kaydı ve güvenlik | Denetim ekranı kullanıcı isteğiyle kaldırıldı | Denetim ekranı ve liste API erişimi yoktur; önceki veriler ve uygulama iç denetimi korunur. CSRF, güvenlik başlıkları, isteğe bağlı parola değişimi ve üretim başlangıç parolası kuralları devam eder. |
 | 6 | Döngü, görev ve hatırlatma | Kullanıcı isteğiyle kaldırıldı | Değerlendirme görev ekranı, API erişimi ve görev bildirimleri kaldırıldı. Mevcut dönemler ve amir değerlendirmeleri devam eder. |
-| 7 | Onaylı Amir Sonuçları | Karşılaştırma paneli tamamlandı | Erişilebilen onaylı amir sonuçları yan yana gösterilir; yüzde puan farkı hesaplanır. Puan değiştirme ve yeni bir birleşik final skor bu kapsamda yoktur. |
+| 7 | Onaylı Amir Sonuçları | Karşılaştırma paneli tamamlandı | Erişilebilen onaylı amir sonuçları yan yana gösterilir; yüzde puan farkı hesaplanır. Birleşik başarı 1. amir %70 ve 2. amir %30 ile hesaplanır; iki onaylı kayıt gerekir. Değerlendirme anındaki amir sırası saklanır ve bireysel puanlar korunur. |
 | 8 | Yetkinlik/kıdem matrisi | Kullanıcı isteğiyle kaldırıldı | Menü, tarayıcı ekranı ve API erişimi kaldırıldı; önceki matris kayıtları saklanır. |
 | 9 | Bireysel hedefler, check-in, gelişim planları | Kullanıcı isteğiyle kaldırıldı | Menü, tarayıcı ekranı ve API erişimi kaldırıldı; önceki hedef, gelişim planı ve görüşme kayıtları korunur. |
 | 10 | Low-code / sayfa tasarımcısı | Kullanıcı isteğiyle kaldırıldı | Tasarım, yayın, sürümleme, veri kaynağı kataloğu ve grafik bileşeni geliştirmeleri kapsam dışıdır. |
@@ -31,7 +31,7 @@
 
 - Yeni ekranlar ayrı izinlerle yönetilir. Sistem yöneticisi erişebilir; mevcut diğer rollere otomatik yetki verilmez.
 - Çalışan görüşü/kabulü için değerlendirme geçmişi ve yanıt izinleri gerekir. Hesabın çalışan kaydıyla ilişkilendirilmesi zorunludur.
-- Yetkilendirmede kullanıcı hesapları ve rol yetkileri yönetilir; çalışan bağlantısı ve amir atama alanları gösterilmez. Parola değişikliği kullanıcı menüsünden yapılır; yeni hesap oluştururken ilk giriş parolası belirlenir.
+- Yetkilendirmede kullanıcı hesapları, rol yetkileri ve ekip amirleri yönetilir. Ekip ataması mevcut tüm çalışanlara ve sonradan eklenen/ekibe taşınan çalışanlara uygulanır; çalışan-hesap bağlantısı gösterilmez. Parola değişikliği kullanıcı menüsünden yapılır; yeni hesap oluştururken ilk giriş parolası belirlenir.
 - Yeni şema geçişleri uygulama açılışındaki mevcut migration akışıyla uygulanır. Eski değerlendirmeler ve eski sayfa verileri silinmez.
 
 ## Doğrulama kapsamı

@@ -18,8 +18,7 @@ public sealed class DashboardRepository(KpiDbContext db) : IDashboardRepository
             employeeQuery = user.RoleCode switch
             {
                 RoleCodes.Administrator or RoleCodes.HumanResources => employeeQuery,
-                RoleCodes.FirstManager => employeeQuery.Where(x => x.FirstManagerUserId == requesterUserId),
-                RoleCodes.SecondManager => employeeQuery.Where(x => x.SecondManagerUserId == requesterUserId),
+                RoleCodes.FirstManager or RoleCodes.SecondManager => employeeQuery.Where(x => x.FirstManagerUserId == requesterUserId || x.SecondManagerUserId == requesterUserId),
                 RoleCodes.Employee => employeeQuery.Where(x => x.Id == user.EmployeeId),
                 _ => employeeQuery.Where(_ => false)
             };
@@ -33,16 +32,19 @@ public sealed class DashboardRepository(KpiDbContext db) : IDashboardRepository
         var rows = await query.OrderByDescending(x => x.ScorePercentage)
             .Select(x => new EvaluationSummaryDto(x.Id, x.EmployeeNameSnapshot, x.ProfessionNameSnapshot,
                 x.PeriodNameSnapshot,x.TotalScore,x.AverageScore,x.EvaluationDate,x.GeneralNote,x.WeightedScore,x.Status,x.ManagerFeedback,x.EmployeeFeedback,x.DevelopmentAction,x.FollowUpDate,
-                x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt,false,false,x.EmployeeId,x.ProfessionIdSnapshot,x.EvaluationPeriodId))
+                x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt,false,false,x.EmployeeId,x.ProfessionIdSnapshot,x.EvaluationPeriodId,false,x.EvaluatorManagerLevelSnapshot))
             .ToListAsync(ct);
         var evaluated = await query.Select(x => x.EmployeeId).Distinct().CountAsync(ct);
         var goalRows=await db.EmployeeEvaluationDetails.AsNoTracking()
             .Where(x=>x.KpiCriterion.CompanyGoalId!=null&&employeeIds.Contains(x.EmployeeEvaluation.EmployeeId)&&x.EmployeeEvaluation.Status==EvaluationStatus.Approved&&(periodId==null||x.EmployeeEvaluation.EvaluationPeriodId==periodId))
             .Select(x=>new{GoalName=x.KpiCriterion.CompanyGoal!.Name,x.Score,x.EmployeeEvaluationId}).ToListAsync(ct);
         var goalProgress=goalRows.GroupBy(x=>x.GoalName).Select(x=>new GoalProgressDto(x.Key,Math.Round(x.Average(y=>(decimal)y.Score),2),x.Select(y=>y.EmployeeEvaluationId).Distinct().Count())).OrderByDescending(x=>x.AverageScore).ToList();
+        var combined = ApprovedManagerResults.Create(rows);
+        var completed = combined.Where(x => x.CombinedPercentage is not null).ToArray();
         return new(total, evaluated, Math.Max(0, total - evaluated),
             rows.Count == 0 ? 0 : Math.Round(rows.Average(x => x.WeightedScore), 2), rows,goalProgress,
-            rows.Count == 0 ? 0 : Math.Round(rows.Average(x => x.ScorePercentage), 2));
+            rows.Count == 0 ? 0 : Math.Round(rows.Average(x => x.ScorePercentage), 2), null, combined,
+            completed.Length == 0 ? null : Math.Round(completed.Average(x => x.CombinedPercentage!.Value), 2));
     }
 
     public async Task<IReadOnlyList<PortableEvaluationDto>> GetPortableEvaluationsAsync(int? periodId, CancellationToken ct = default) =>

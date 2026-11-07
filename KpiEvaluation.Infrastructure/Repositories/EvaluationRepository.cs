@@ -50,7 +50,7 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
         if (input.EvaluationPeriodId <= 0) throw new ValidationException("Değerlendirme dönemi seçmelisiniz.");
         var employee = await db.Employees.AsNoTracking()
             .Where(x => x.Id == input.EmployeeId && x.IsActive)
-            .Select(x => new { x.Id, x.ProfessionId, x.FullName, ProfessionName = x.Profession.Name })
+            .Select(x => new { x.Id, x.ProfessionId, x.FullName, ProfessionName = x.Profession.Name, x.FirstManagerUserId, x.SecondManagerUserId })
             .SingleOrDefaultAsync(ct) ?? throw new ValidationException("Aktif çalışan bulunamadı.");
         await EnsureEmployeeAccessAsync(employee.Id, evaluatorUserId, ct);
         if (await db.EmployeeEvaluations.AsNoTracking().AnyAsync(x => x.EmployeeId == employee.Id && x.EvaluationPeriodId == input.EvaluationPeriodId && x.EvaluatorUserId == evaluatorUserId, ct))
@@ -97,6 +97,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
                 MaximumScore = input.Items.Count * 5,
                 ScorePercentage = Math.Round(weightedScore * 20, 2),
                 EvaluatorUserId = evaluatorUserId,
+                EvaluatorManagerLevelSnapshot = evaluatorUserId is null ? null
+                    : employee.FirstManagerUserId == evaluatorUserId ? 1 : employee.SecondManagerUserId == evaluatorUserId ? 2 : null,
                 GeneralNote = input.GeneralNote?.Trim(),
                 ManagerFeedback=input.ManagerFeedback?.Trim(),EmployeeFeedback=input.EmployeeFeedback?.Trim(),DevelopmentAction=input.DevelopmentAction?.Trim(),FollowUpDate=input.FollowUpDate,
                 Status=isDraft?EvaluationStatus.Draft:EvaluationStatus.Approved,
@@ -154,11 +156,11 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
                 x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt,
                 canEdit && x.Status != EvaluationStatus.Approved && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator),
                 canApprove && x.Status == EvaluationStatus.Completed && (roleCode == RoleCodes.Administrator
-                    || (roleCode == RoleCodes.FirstManager && x.Employee.FirstManagerUserId == requesterUserId)
-                    || (roleCode == RoleCodes.SecondManager && x.Employee.SecondManagerUserId == requesterUserId)),
+                    || ((roleCode == RoleCodes.FirstManager || roleCode == RoleCodes.SecondManager)
+                        && (x.Employee.FirstManagerUserId == requesterUserId || x.Employee.SecondManagerUserId == requesterUserId))),
                 x.EmployeeId, x.ProfessionIdSnapshot, x.EvaluationPeriodId,
                 x.Status == EvaluationStatus.Approved ? canApprove && x.ApprovedByUserId == requesterUserId
-                    : canEdit && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator)))
+                    : canEdit && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator), x.EvaluatorManagerLevelSnapshot))
             .ToListAsync(ct);
     }
 
@@ -297,8 +299,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
         if (user.RoleCode == RoleCodes.Administrator) return;
         var allowed = user.RoleCode switch
         {
-            RoleCodes.FirstManager => await db.Employees.AnyAsync(x => x.Id == employeeId && x.FirstManagerUserId == userId, ct),
-            RoleCodes.SecondManager => await db.Employees.AnyAsync(x => x.Id == employeeId && x.SecondManagerUserId == userId, ct),
+            RoleCodes.FirstManager or RoleCodes.SecondManager => await db.Employees.AnyAsync(x => x.Id == employeeId
+                && (x.FirstManagerUserId == userId || x.SecondManagerUserId == userId), ct),
             RoleCodes.Employee => user.EmployeeId == employeeId,
             _ => false
         };
@@ -314,8 +316,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
         return user.RoleCode switch
         {
             RoleCodes.Administrator or RoleCodes.HumanResources => query,
-            RoleCodes.FirstManager => query.Where(x => x.Employee.FirstManagerUserId == userId || x.EvaluatorUserId == userId),
-            RoleCodes.SecondManager => query.Where(x => x.Employee.SecondManagerUserId == userId || x.EvaluatorUserId == userId),
+            RoleCodes.FirstManager or RoleCodes.SecondManager => query.Where(x => x.Employee.FirstManagerUserId == userId
+                || x.Employee.SecondManagerUserId == userId || x.EvaluatorUserId == userId),
             RoleCodes.Employee => query.Where(x => x.EmployeeId == user.EmployeeId && x.Status == EvaluationStatus.Approved),
             _ => query.Where(_ => false)
         };
