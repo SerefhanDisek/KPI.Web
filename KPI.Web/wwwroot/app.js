@@ -21,13 +21,20 @@ const statusBadge = status => `<span class="badge ${status === 0 ? 'draft' : sta
 
 async function api(url, options = {}) {
   const { responseType, ...fetchOptions } = options;
+  const request = async (path, init) => {
+    try { return await fetch(path, init); }
+    catch (error) {
+      if (error.name === 'AbortError') throw error;
+      throw new Error('Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.', {cause:error});
+    }
+  };
   let csrfToken;
   if (!['GET','HEAD','OPTIONS'].includes((options.method||'GET').toUpperCase())) {
-    const tokenResponse=await fetch('/api/auth/csrf',{cache:'no-store'});
+    const tokenResponse=await request('/api/auth/csrf',{cache:'no-store',signal:options.signal});
     if(!tokenResponse.ok)throw new Error('Güvenlik doğrulaması alınamadı. Sayfayı yenileyip tekrar deneyin.');
     csrfToken=(await tokenResponse.json()).token;
   }
-  const response = await fetch(url, {
+  const response = await request(url, {
     ...fetchOptions,
     headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(csrfToken?{'X-CSRF-TOKEN':csrfToken}:{}), ...(options.headers || {}) }
   });
@@ -85,7 +92,6 @@ function bindSpreadsheetActions(resource, getFilters, reload) {
       if (!file?.size || !file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Dolu bir .xlsx dosyası seçmelisiniz.');
       if (file.size > 10 * 1024 * 1024) throw new Error('Dosya en fazla 10 MB olabilir.');
       const permanent = form.get('permanentEvaluations') === 'on';
-      if (permanent && !confirm('Değerlendirmeler kalıcı olarak onaylanacak. Devam edilsin mi?')) throw new Error('Kalıcı kayıt iptal edildi.');
       const body = new FormData(); body.append('file', file); body.append('permanentEvaluations', String(permanent));
       const result = await api(`/api/spreadsheets/${resource}/import`, {method:'POST', body});
       await reload();
@@ -112,7 +118,7 @@ const hasPermission = permission => state.user?.permissions?.includes(permission
 function selectionFilter(id, label, items, selected, placeholder, {multiple = true, clearable = true} = {}) {
   const values = Array.isArray(selected) ? selected.map(String) : selected==null||selected==='' ? [] : [String(selected)];
   const names = items.filter(x=>values.includes(String(x.id))).map(x=>x.name??x.fullName);
-  return `<div class="field"><span class="filter-label" id="${id}-label">${esc(label)}</span><details class="multi-filter" id="${id}" data-multiple="${multiple}" data-placeholder="${esc(placeholder)}"><summary class="filter-select" aria-labelledby="${id}-label ${id}-summary"><span id="${id}-summary">${esc(names.length===1?names[0]:names.length?`${names.length} seçim`:placeholder)}</span></summary><div class="multi-filter-options"><div class="multi-filter-search">${icon('search')}<input type="search" class="input" aria-label="${esc(label)} seçeneklerinde ara" placeholder="Seçeneklerde ara…" autocomplete="off" spellcheck="false"></div>${clearable?`<button type="button" class="multi-filter-reset">${esc(placeholder)}</button>`:''}${items.map(x=>`<label><input type="${multiple?'checkbox':'radio'}" name="${id}" value="${esc(x.id)}" ${values.includes(String(x.id))?'checked':''}><span>${esc(x.name??x.fullName)}</span></label>`).join('')}<p class="multi-filter-empty" role="status" hidden>Seçenek bulunamadı.</p></div></details></div>`;
+  return `<div class="field"><span class="filter-label" id="${id}-label">${esc(label)}</span><details class="multi-filter" id="${id}" data-multiple="${multiple}" data-placeholder="${esc(placeholder)}"><summary class="filter-select" aria-labelledby="${id}-label ${id}-summary"><span id="${id}-summary">${esc(names.length===1?names[0]:names.length?`${names.length} seçim`:placeholder)}</span></summary><div class="multi-filter-options" popover="manual"><div class="multi-filter-search">${icon('search')}<input type="search" class="input" aria-label="${esc(label)} seçeneklerinde ara" placeholder="Seçeneklerde ara…" autocomplete="off" spellcheck="false"></div>${clearable?`<button type="button" class="multi-filter-reset">${esc(placeholder)}</button>`:''}${items.map(x=>`<label><input type="${multiple?'checkbox':'radio'}" name="${id}" value="${esc(x.id)}" ${values.includes(String(x.id))?'checked':''}><span>${esc(x.name??x.fullName)}</span></label>`).join('')}<p class="multi-filter-empty" role="status" hidden>Seçenek bulunamadı.</p></div></details></div>`;
 }
 
 const selectedFilterValues = id => [...document.getElementById(id).querySelectorAll('input:checked')].map(x=>x.value);
@@ -121,6 +127,24 @@ function bindSelectionFilters(onChange, root = app) {
   const controller = new AbortController();
   const controls = [...root.querySelectorAll('.multi-filter')];
   controls.forEach(control => {
+    const panel = control.querySelector('.multi-filter-options');
+    const summary = control.querySelector('summary');
+    const position = () => {
+      if (!control.open || !panel.matches(':popover-open')) return;
+      const anchor = summary.getBoundingClientRect(), gap = 6, edge = 12;
+      if (anchor.bottom <= edge || anchor.top >= innerHeight - edge) { close(); return; }
+      const below = Math.max(0, innerHeight - anchor.bottom - gap - edge);
+      const above = Math.max(0, anchor.top - gap - edge);
+      const opensAbove = below < Math.min(260, panel.scrollHeight) && above > below;
+      panel.style.width = `${Math.min(anchor.width, innerWidth - edge * 2)}px`;
+      panel.style.maxHeight = `${Math.min(260, opensAbove ? above : below)}px`;
+      panel.style.left = `${Math.max(edge, Math.min(anchor.left, innerWidth - panel.offsetWidth - edge))}px`;
+      const top = opensAbove ? anchor.top - gap - panel.offsetHeight : anchor.bottom + gap;
+      panel.style.top = `${Math.max(edge, Math.min(top, innerHeight - panel.offsetHeight - edge))}px`;
+    };
+    const close = () => { control.open = false; if (panel.matches(':popover-open')) panel.hidePopover(); summary.setAttribute('aria-expanded','false'); };
+    summary.setAttribute('aria-expanded', String(control.open));
+    summary.setAttribute('aria-controls', panel.id = `${control.id}-options`);
     const search = control.querySelector('.multi-filter-search input');
     const choices = [...control.querySelectorAll('.multi-filter-options > label')];
     const filterOptions = () => {
@@ -129,6 +153,7 @@ function bindSelectionFilters(onChange, root = app) {
         choice.hidden = !choice.textContent.normalize('NFC').toLocaleLowerCase('tr-TR').includes(term);
       });
       control.querySelector('.multi-filter-empty').hidden = choices.some(choice => !choice.hidden);
+      position();
     };
     search.addEventListener('input', filterOptions, {signal:controller.signal});
     search.addEventListener('keydown', event => {
@@ -142,7 +167,7 @@ function bindSelectionFilters(onChange, root = app) {
     const update = () => {
       const selected = [...control.querySelectorAll('input:checked')];
       control.querySelector('summary span').textContent = selected.length===1 ? selected[0].nextElementSibling.textContent : selected.length ? `${selected.length} seçim` : control.dataset.placeholder;
-      if (control.dataset.multiple==='false') { control.open=false; control.querySelector('summary').focus(); }
+      if (control.dataset.multiple==='false') { close(); summary.focus(); }
       onChange(control);
     };
     control.onchange = event => {
@@ -152,9 +177,18 @@ function bindSelectionFilters(onChange, root = app) {
     if (reset) reset.onclick = () => {
       control.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(input=>input.checked=false);
       search.value = ''; filterOptions();
-      update(); control.open=false; control.querySelector('summary').focus();
+      update(); close(); summary.focus();
     };
-    control.ontoggle = () => { if (control.open) controls.filter(x=>x!==control).forEach(x=>x.open=false); };
+    control.ontoggle = () => {
+      if (controller.signal.aborted) return;
+      if (control.open) {
+        document.querySelectorAll('.multi-filter[open]').forEach(other => { if (other !== control) other.open = false; });
+        panel.showPopover(); summary.setAttribute('aria-expanded','true'); position();
+      } else close();
+    };
+    window.addEventListener('resize', position, {signal:controller.signal});
+    document.addEventListener('scroll', position, {capture:true,signal:controller.signal});
+    controller.signal.addEventListener('abort', close, {once:true});
   });
   document.addEventListener('click', event => controls.filter(x=>!x.contains(event.target)).forEach(x=>x.open=false), {signal:controller.signal});
   document.addEventListener('keydown', event => {
@@ -278,8 +312,10 @@ function toast(message, type = 'success') {
   const element = document.createElement('div');
   element.className = `toast ${type}`;
   element.textContent = message;
-  document.querySelector('#toasts').append(element);
-  setTimeout(() => element.remove(), 4200);
+  const region = document.querySelector('#toasts');
+  region.append(element);
+  if (!region.matches(':popover-open')) region.showPopover();
+  setTimeout(() => { element.remove(); if (!region.childElementCount) region.hidePopover(); }, 5000);
 }
 
 function openDialog(title, body, onSubmit, wide = false) {
@@ -458,7 +494,7 @@ function showManagerEvaluations(manager, periodId, initialFilters = {}) {
     const approved = rows.filter(x => x.status === 4);
     const employees = [...new Map(filterRows.map(x => [x.employeeId, {id:x.employeeId, name:x.employeeName}])).values()].sort((a,b) => a.name.localeCompare(b.name, 'tr'));
     const professions = [...new Map(filterRows.map(x => [x.professionId, {id:x.professionId, name:x.professionName}])).values()].sort((a,b) => a.name.localeCompare(b.name, 'tr'));
-    shell(`<div class="detail-grid"><div class="detail-box"><small>Çalışan</small><strong>${new Set(rows.map(x=>x.employeeId)).size}</strong></div><div class="detail-box"><small>Onaylı</small><strong>${approved.length}</strong></div><div class="detail-box"><small>Bekleyen</small><strong>${rows.length-approved.length}</strong></div></div>
+    shell(`<div class="detail-grid"><div class="detail-box"><small>Çalışan</small><strong>${manager.employeeCount}</strong></div><div class="detail-box"><small>Onaylı</small><strong>${approved.length}</strong></div><div class="detail-box"><small>Bekleyen</small><strong>${rows.length-approved.length}</strong></div></div>
       <div class="toolbar history-filters">${selectionFilter('manager-evaluation-employee','Çalışan',employees,employeeIds,'Tüm çalışanlar')}${selectionFilter('manager-evaluation-profession','Ekip',professions,professionIds,'Tüm ekipler')}${selectionFilter('manager-evaluation-status','Durum',statusNames.map((name,id)=>({id,name})),status,'Tüm durumlar',{multiple:false})}</div><p id="manager-evaluation-count" role="status"></p><div class="table-wrap" id="manager-evaluation-list"></div>`);
     const apply = () => {
       const filtered = rows.filter(x => (!employeeIds.length || employeeIds.includes(String(x.employeeId)))
@@ -879,7 +915,6 @@ async function saveEvaluation(status) {
   const periodId = Number(document.querySelector('#eval-period').value);
   if (!employeeId || !periodId) { toast('Çalışan ve dönem seçmelisiniz.','error'); return; }
   if (status === 4 && (!hasPermission(2) || state.evaluationItems.some(x => x.score == null))) { toast('Kalıcı kayıt için tüm soruları puanlamalı ve onaylama yetkisine sahip olmalısınız.','error'); return; }
-  if (status === 4 && !confirm('Kalıcı kayıt onaylanacak. Devam edilsin mi?')) return;
   state.savingEvaluation = true;
   document.querySelector('.setup-card').inert = true;
   document.querySelector('#criteria-card').inert = true;
@@ -918,7 +953,6 @@ async function editEvaluation(id, {onSaved = historyPage, onClose = null} = {}) 
         return {detailId:x.detailId, score:x.measurementType===0?Number(form.get(`score-${x.detailId}`)):metricScore(actualValue,x.targetValue,x.targetDirection)??0, actualValue, note:form.get(`note-${x.detailId}`)};
       });
       if (saveStatus === 4 && items.some(x=>x.score===0)) throw new Error('Kalıcı kayıt için tüm soruları puanlamalısınız.');
-      if (saveStatus === 4 && !confirm('Kalıcı kayıt onaylanacak. Devam edilsin mi?')) throw new Error('Kalıcı kayıt iptal edildi.');
       await api(`/api/evaluations/${id}`, {method:'PUT',body:JSON.stringify({id,generalNote:form.get('generalNote'),items,status:saveStatus,expectedUpdatedAt:edit.updatedAt,managerFeedback:edit.managerFeedback,employeeFeedback:edit.employeeFeedback,developmentAction:edit.developmentAction,followUpDate:edit.followUpDate})});
       if (wasApproved) alert('Değerlendirme tekrar taslağa döndü. Düzenleme sonrasında yeniden onaylanması gerekir.');
       else toast(saveStatus===0?'Geçici kayıt güncellendi.':'Değerlendirme kalıcı olarak kaydedildi ve onaylandı.');
@@ -986,7 +1020,7 @@ async function deleteEvaluation(id, rows = state.history, table = document.query
   finally { buttons.forEach(button => button.disabled = false); }
 }
 
-async function approveEvaluation(id){if(!confirm('Değerlendirme kalıcı olarak kaydedilip onaylanacak. Devam edilsin mi?'))return;try{await api(`/api/evaluations/${id}/approve`,{method:'POST'});toast('Değerlendirme onaylandı ve resmî sonuçlara eklendi.');await historyPage();}catch(error){toast(error.message,'error');}}
+async function approveEvaluation(id){try{await api(`/api/evaluations/${id}/approve`,{method:'POST'});toast('Değerlendirme onaylandı ve resmî sonuçlara eklendi.');await historyPage();}catch(error){toast(error.message,'error');}}
 
 async function showEvaluationDetail(id, rows = state.history, onBack = null, signal = undefined) {
   try {

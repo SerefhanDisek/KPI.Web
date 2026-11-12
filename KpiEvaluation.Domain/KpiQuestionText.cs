@@ -9,4 +9,7 @@ public static class KpiQuestionText
 
     public static string CapitalizeWords(string value) => Regex.Replace(value, @"\p{L}[\p{L}\p{M}\p{N}'’]*",
         word => word.Value[..1].ToUpper(TurkishCulture) + word.Value[1..]);
+
+    public static string NormalizeIdentity(string value) => Regex.Replace(value.Replace("\uF0B7", "").Normalize(), @"\s+", " ")
+        .Trim().TrimEnd('.', '?', '!').TrimEnd().ToUpper(TurkishCulture);
 }

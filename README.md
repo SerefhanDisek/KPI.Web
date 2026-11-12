@@ -51,6 +51,18 @@ Yetkilendirme ekranı **Kullanıcı hesapları**, **Rol ve yetki yönetimi** ve 
 
 Aktif **Sistem Yöneticisi** tüm uygulama yetkilerine her zaman sahiptir; bu rolün yetkileri kaldırılamaz. Diğer roller Yetkilendirme ekranında tanımlanan yetkileri kullanır.
 
+## Paylaşılan başlangıç verileri ve güncelleme
+
+İlk açılışta veri paketi yüklendikten sonra sürümlü soru temizliği de tamamlanır; ekranlar ancak bu işlemler bitince veri göstermeye başlar. Aynı kapsam ve tanımdaki tekrarlanan aktif sorulardan biri açık kalır, diğerleri pasife alınır. Geçmiş değerlendirmeler ve puanlar değiştirilmez. Düzeltme mevcut kurulumlarda da bir kez uygulanır; aynı sorunun yeniden eklenmesi veya tekrar aktif yapılması engellenir. Farklı ekiplere veya farklı tanımlara ait sorular ayrı kalır.
+
+`Database/08_shared_data_20261112.json`, mevcut veritabanı ile sağlanan yedeğin verilerini içerir. Yeni kurulumlarda meslekler, çalışanlar, dönemler, hedefler, KPI soruları, değerlendirmeler ve soru anlık görüntüleri, izin bakiyeleri, kullanıcı hesapları, yetkiler, amir atamaları ve denetim geçmişi otomatik hazırlanır. Birleşik başlangıç kümesinde **15 meslek, 44 çalışan, 143 KPI, 2 dönem, 5 şirket hedefi, 6 değerlendirme, 40 izin bakiyesi ve 4 kullanıcı hesabı** bulunur. Pasif ve tarihsel kayıtlar da korunur; aktif listelerdeki sayılar farklı olabilir.
+
+Mevcut kurulumda paket yalnızca eksik kayıtları ekler. Yerelde eklenen veya değiştirilen kayıtlar, parolalar, izin bakiyeleri, yetkiler ve amir atamaları korunur. Aynı kayıtta farklı değer varsa mevcut veritabanı önceliklidir. Eşleştirme isimler ve ilişkili kapsam üzerinden yapılır; başka veritabanının ID değerleri kullanılmaz. Belirsiz eşleştirmede aktarım bütünüyle geri alınır. Başarılı aktarım `__KpiSeedHistory` içinde sürümüyle kaydedilir; tekrar açılışlarda çoğalmaz ve sonradan silinen kayıtlar geri oluşturulmaz.
+
+JSON dosyası build/publish çıktısına otomatik kopyalanır. Sunucuda `.bak` dosyası veya masaüstü dosya yolu gerekmez. Paket parola veya parola özeti içermez; mevcut hesapların parolaları değişmez, yeni hesaplar yukarıdaki başlangıç parolası ayarını kullanır. Personel ve değerlendirme verilerini içerdiği için yayın paketini uygulamanın yetkili işletmecileriyle paylaşın; dosya `wwwroot` altında değildir ve statik dosya olarak sunulmaz.
+
+Sunucuya kurarken `ConnectionStrings__KpiDatabase` ile kalıcı SQL Server veritabanını, yeni hesaplar için `Authentication__BootstrapPassword` ile güçlü başlangıç parolasını yapılandırın ve publish klasörünün tamamını taşıyın. Uygulama dosyalarını güncellemek mevcut SQL Server verilerini silmez. Başlangıç paketi gelecekte girilecek verilerin yedeği değildir; güncelleme öncesinde ve düzenli olarak SQL Server yedeği alın. Sunucuyu taşırken yeni bir başlangıç veritabanı yerine mevcut veritabanının güncel yedeğini geri yükleyerek sonradan eklenen kayıtları da taşıyın. Paket biçimi ve yeni sürüm kuralları için [Database/README.md](Database/README.md) dosyasına bakın.
+
 ## Değerlendirme ve izin takibi
 
 - Yönetim listelerinde yalnızca aktif kayıtlar gösterilir. Pasife alınan satır listeden çıkar; sonraki satırlar boşluk bırakmadan yukarı gelir. Kayıtlar ve geçmiş değerlendirmeler korunur.
@@ -119,5 +131,5 @@ KpiEvaluation.Domain          Domain model ve iş kavramları
 KpiEvaluation.Application     CQRS, MediatR, DTO ve repository sözleşmeleri
 KpiEvaluation.Infrastructure  Repository, EF Core, migration ve teknik uygulamalar
 KPI.Web                       ASP.NET Core API ve web arayüzü
-Database                      Başlangıç SQL dosyaları
+Database                      Başlangıç SQL dosyaları ve sürümlü veri paketi
 ```

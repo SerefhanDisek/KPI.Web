@@ -72,6 +72,17 @@ public sealed class KpiRepository(KpiDbContext db) : IKpiRepository
         if (await db.Professions.CountAsync(x => selectedIds.Contains(x.Id) && x.IsActive, ct) != selectedIds.Length)
             throw new ValidationException("Seçilen ekiplerden biri bulunamadı veya pasif durumda.");
         professionId = isCommon ? null : selectedIds[0];
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct) : null;
+        if (isActive)
+        {
+            var identity = KpiQuestionText.NormalizeIdentity(title);
+            var candidates = await db.KpiCriteria.AsNoTracking().Where(x => x.Id != id && x.IsActive && x.IsCommon == isCommon)
+                .Select(x => new { x.Title, x.ProfessionId, TeamIds = x.Professions.Select(p => p.ProfessionId).ToList() }).ToListAsync(ct);
+            if (candidates.Any(x => KpiQuestionText.NormalizeIdentity(x.Title) == identity && selectedIds.ToHashSet().SetEquals(
+                x.TeamIds.Concat(x.ProfessionId is { } teamId ? [teamId] : []))))
+                throw new ValidationException("Aynı soru bu ekip kapsamında zaten bulunuyor. Mevcut KPI kaydını düzenleyebilirsiniz.");
+        }
         if (isActive)
         {
             var commonWeight=await db.KpiCriteria.Where(x=>x.IsActive&&x.IsCommon&&x.Id!=id).SumAsync(x=>(decimal?)x.WeightPercent,ct)??0;
@@ -92,6 +103,7 @@ public sealed class KpiRepository(KpiDbContext db) : IKpiRepository
         entity.Category=category?.Trim();entity.CompanyGoalId=companyGoalId;entity.MeasurementType=measurementType;entity.Unit=unit?.Trim();entity.TargetValue=targetValue;entity.TargetDirection=targetDirection;entity.WeightPercent=weightPercent;entity.DataSource=dataSource?.Trim();entity.ReviewFrequency=reviewFrequency;entity.ValidFrom=validFrom;entity.ValidTo=validTo;entity.IsSpecific=isSpecific;entity.IsMeasurable=isMeasurable;entity.IsAchievable=isAchievable;entity.IsRelevant=isRelevant;entity.IsTimeBound=isTimeBound;
         await db.SaveChangesAsync(ct); string? professionName=professionId is null?null:await db.Professions.Where(x=>x.Id==professionId).Select(x=>x.Name).SingleAsync(ct); string? goalName=companyGoalId is null?null:await db.CompanyGoals.Where(x=>x.Id==companyGoalId).Select(x=>x.Name).SingleAsync(ct);
         var professions = await db.Professions.AsNoTracking().Where(x => selectedIds.Contains(x.Id)).OrderBy(x => x.Name).Select(x => new LookupDto(x.Id, x.Name)).ToListAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return new(entity.Id,entity.Title,entity.Description,entity.ProfessionId,professionName,entity.IsCommon,entity.DisplayOrder,entity.IsActive,entity.Category,entity.CompanyGoalId,goalName,entity.MeasurementType,entity.Unit,entity.TargetValue,entity.TargetDirection,entity.WeightPercent,entity.DataSource,entity.ReviewFrequency,entity.ValidFrom,entity.ValidTo,entity.IsSpecific,entity.IsMeasurable,entity.IsAchievable,entity.IsRelevant,entity.IsTimeBound,professions);
     }
 }

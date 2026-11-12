@@ -12,16 +12,14 @@ public sealed class DatabaseInitializer(KpiDbContext db) : IDatabaseInitializer
     private const string InitialMigrationId = "20260906151758_InitialCreate";
     private static readonly string[] SeedScripts =
     [
-        "03_seed_professions.sql",
-        "04_seed_employees.sql",
-        "05_normalize_kpi_text.sql",
-        "05_seed_kpi_criteria.sql",
-        "06_seed_evaluation_period.sql",
-        "07_seed_strategic_kpi_data.sql"
+        "05_normalize_kpi_text.sql"
     ];
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        var hadApplicationTables = await db.Database.CanConnectAsync(cancellationToken)
+            && await db.Database.SqlQueryRaw<int>("SELECT CASE WHEN OBJECT_ID(N'profession', N'U') IS NULL THEN 0 ELSE 1 END AS [Value]")
+                .SingleAsync(cancellationToken) == 1;
         await PrepareLegacyDatabaseAsync(cancellationToken);
         await db.Database.MigrateAsync(cancellationToken);
 
@@ -32,6 +30,9 @@ public sealed class DatabaseInitializer(KpiDbContext db) : IDatabaseInitializer
                     AppliedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
                 );
             """, cancellationToken);
+
+        if (!hadApplicationTables)
+            await db.Database.ExecuteSqlInterpolatedAsync($"IF NOT EXISTS (SELECT 1 FROM __KpiSeedHistory WHERE ScriptName={SharedDataSeeder.NewDatabaseMarker}) INSERT INTO __KpiSeedHistory(ScriptName) VALUES({SharedDataSeeder.NewDatabaseMarker})", cancellationToken);
 
         var databaseDirectory = Path.Combine(AppContext.BaseDirectory, "Database");
         foreach (var scriptName in SeedScripts)

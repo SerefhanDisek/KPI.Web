@@ -31,11 +31,10 @@ public sealed class DatabaseStartup(IServiceProvider services, ILogger<DatabaseS
             await using var scope = services.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>().InitializeAsync(cancellationToken);
             var accounts = await scope.ServiceProvider.GetRequiredService<ISecuritySeeder>().SeedAsync(cancellationToken);
-            foreach (var account in accounts)
-            {
-                if (environment.IsDevelopment()) logger.LogWarning("İlk kullanım hesabı oluşturuldu: {UserName} / {Password}", account.UserName, account.TemporaryPassword);
-                else logger.LogWarning("İlk kullanım hesabı hazırlandı: {UserName}. Başlangıç parolası güvenli ortam yapılandırmasından yönetilmelidir.", account.UserName);
-            }
+            LogCreatedAccounts(accounts);
+            var importedAccounts = await scope.ServiceProvider.GetRequiredService<ISharedDataSeeder>().SeedAsync(cancellationToken);
+            LogCreatedAccounts(importedAccounts);
+            await scope.ServiceProvider.GetRequiredService<IKpiDuplicateCleanup>().CleanupAsync(cancellationToken);
             isReady = true;
             logger.LogInformation("KPI veritabanı kullanıma hazır.");
         }
@@ -47,6 +46,15 @@ public sealed class DatabaseStartup(IServiceProvider services, ILogger<DatabaseS
         {
             StatusMessage = SqlServerConnectionResolver.GetInitializationFailureMessage(exception);
             logger.LogWarning(exception, "KPI veritabanı hazırlanamadı. Başlangıç işlemi 15 saniye sonra yeniden denenecek.");
+        }
+    }
+
+    private void LogCreatedAccounts(IReadOnlyList<SecurityBootstrapAccount> accounts)
+    {
+        foreach (var account in accounts)
+        {
+            if (environment.IsDevelopment()) logger.LogWarning("İlk kullanım hesabı oluşturuldu: {UserName} / {Password}", account.UserName, account.TemporaryPassword);
+            else logger.LogWarning("İlk kullanım hesabı hazırlandı: {UserName}. Başlangıç parolası güvenli ortam yapılandırmasından yönetilmelidir.", account.UserName);
         }
     }
 }

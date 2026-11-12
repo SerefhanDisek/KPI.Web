@@ -260,12 +260,12 @@ public sealed class SpreadsheetRepository(KpiDbContext db, IEmployeeRepository e
         var candidates = await db.KpiCriteria.AsNoTracking().Where(x => x.IsCommon == common
             && (common || (x.ProfessionId != null && professionIds.Contains(x.ProfessionId.Value))
                 || x.Professions.Any(p => professionIds.Contains(p.ProfessionId))))
-            .Select(x => new { x.Id, x.Title, x.ProfessionId, ScopeIds = x.Professions.Select(p => p.ProfessionId).ToList() })
+            .Select(x => new { x.Id, x.Title, x.IsActive, x.ProfessionId, ScopeIds = x.Professions.Select(p => p.ProfessionId).ToList() })
             .ToListAsync(ct);
-        var comparer = StringComparer.Create(CultureInfo.GetCultureInfo("tr-TR"), true);
-        var matches = candidates.Where(x => comparer.Equals(KpiQuestionText.CapitalizeWords(x.Title).Normalize(), title.Normalize())
+        var matches = candidates.Where(x => KpiQuestionText.NormalizeIdentity(x.Title) == KpiQuestionText.NormalizeIdentity(title)
             && (common || professionIds.SetEquals(x.ScopeIds.Concat(x.ProfessionId is { } primary ? new[] { primary } : []))))
-            .Take(2).ToArray();
+            .ToArray();
+        if (matches.Any(x => x.IsActive)) matches = matches.Where(x => x.IsActive).ToArray();
         if (matches.Length > 1) throw new ValidationException("Aynı başlık ve ekip kapsamında birden fazla KPI var; kayıt eşleştirilemedi.");
         var existing = matches.Length == 0 ? null : await db.KpiCriteria.AsNoTracking().SingleAsync(x => x.Id == matches[0].Id, ct);
         await kpis.SaveAsync(existing?.Id, title, description, null, common, existing?.DisplayOrder ?? 1, existing?.IsActive ?? true, ct,
@@ -282,7 +282,7 @@ public sealed class SpreadsheetRepository(KpiDbContext db, IEmployeeRepository e
         var common = row.Values["Herkes"].ToLowerInvariant() is "evet" or "true" or "1";
         var teams = common ? [] : row.Values["Ekipler"].Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Select(value => value.Normalize().ToUpper(culture)).Distinct().Order().ToArray();
-        return JsonSerializer.Serialize(new { Title = row.Values["KPI"].Normalize().ToUpper(culture), Common = common, Teams = teams });
+        return JsonSerializer.Serialize(new { Title = KpiQuestionText.NormalizeIdentity(row.Values["KPI"]), Common = common, Teams = teams });
     }
 
     private async Task ImportEmployeeAsync(SpreadsheetRow row, CancellationToken ct)

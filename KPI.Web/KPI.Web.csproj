@@ -11,5 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\Database\*.sql" Link="Database\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\Database\08_shared_data_20261112.json" Link="Database\08_shared_data_20261112.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

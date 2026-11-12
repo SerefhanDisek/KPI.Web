@@ -13,6 +13,8 @@ public static class DependencyInjection
         services.AddSingleton(provider => new SqlServerConnectionResolver(connectionString, provider.GetRequiredService<ILogger<SqlServerConnectionResolver>>()));
         services.AddDbContext<KpiDbContext>((provider, options) => options.UseSqlServer(provider.GetRequiredService<SqlServerConnectionResolver>().ConnectionString));
         services.AddScoped<IDatabaseInitializer, DatabaseInitializer>();
+        services.AddScoped<ISharedDataSeeder, SharedDataSeeder>();
+        services.AddScoped<IKpiDuplicateCleanup, KpiDuplicateCleanup>();
         services.AddScoped<IEmployeeRepository, EmployeeRepository>();
         services.AddScoped<IEmployeeLeaveRepository, EmployeeLeaveRepository>();
         services.AddScoped<ISpreadsheetRepository, SpreadsheetRepository>();
