@@ -517,7 +517,7 @@ namespace KpiEvaluation.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_average_score", "([Status] = 0 AND [AverageScore] BETWEEN 0 AND 5) OR [AverageScore] BETWEEN 1 AND 5");
 
-                            t.HasCheckConstraint("ck_evaluator_manager_level", "[EvaluatorManagerLevelSnapshot] IS NULL OR [EvaluatorManagerLevelSnapshot] IN (1, 2)");
+                            t.HasCheckConstraint("ck_evaluator_manager_level", "[EvaluatorManagerLevelSnapshot] IS NULL OR [EvaluatorManagerLevelSnapshot] > 0");
 
                             t.HasCheckConstraint("ck_maximum_score", "[MaximumScore] > 0");
 
@@ -664,6 +664,51 @@ namespace KpiEvaluation.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_leave_dates", "[EndDate] >= [StartDate]");
                         });
+                });
+
+            modelBuilder.Entity("KpiEvaluation.Domain.EmployeeLeaveBalance", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<int>("CreatedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("EmployeeId")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly>("EntitlementDate")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("RemainingDays")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("EmployeeId")
+                        .IsUnique();
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("EntitlementDate", "Id");
+
+                    b.ToTable("employee_leave_balance", (string)null);
                 });
 
             modelBuilder.Entity("KpiEvaluation.Domain.EvaluationEmployeeResponse", b =>
@@ -972,6 +1017,36 @@ namespace KpiEvaluation.Infrastructure.Migrations
                     b.ToTable("role_permission", (string)null);
                 });
 
+            modelBuilder.Entity("KpiEvaluation.Domain.TeamManagerAssignment", b =>
+                {
+                    b.Property<int>("ProfessionId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ManagerUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("WeightPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.HasKey("ProfessionId", "ManagerUserId");
+
+                    b.HasIndex("ManagerUserId");
+
+                    b.HasIndex("ProfessionId", "Position")
+                        .IsUnique();
+
+                    b.ToTable("team_manager_assignment", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_team_manager_position", "[Position] > 0");
+
+                            t.HasCheckConstraint("ck_team_manager_weight", "[WeightPercent] > 0 AND [WeightPercent] <= 100");
+                        });
+                });
+
             modelBuilder.Entity("KpiEvaluation.Domain.AppUser", b =>
                 {
                     b.HasOne("KpiEvaluation.Domain.Employee", "Employee")
@@ -1144,6 +1219,32 @@ namespace KpiEvaluation.Infrastructure.Migrations
                     b.Navigation("UpdatedByUser");
                 });
 
+            modelBuilder.Entity("KpiEvaluation.Domain.EmployeeLeaveBalance", b =>
+                {
+                    b.HasOne("KpiEvaluation.Domain.AppUser", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("KpiEvaluation.Domain.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("KpiEvaluation.Domain.AppUser", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("UpdatedByUser");
+                });
+
             modelBuilder.Entity("KpiEvaluation.Domain.EvaluationEmployeeResponse", b =>
                 {
                     b.HasOne("KpiEvaluation.Domain.EmployeeEvaluation", "Evaluation")
@@ -1227,6 +1328,25 @@ namespace KpiEvaluation.Infrastructure.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("KpiEvaluation.Domain.TeamManagerAssignment", b =>
+                {
+                    b.HasOne("KpiEvaluation.Domain.AppUser", "ManagerUser")
+                        .WithMany()
+                        .HasForeignKey("ManagerUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("KpiEvaluation.Domain.Profession", "Profession")
+                        .WithMany("ManagerAssignments")
+                        .HasForeignKey("ProfessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ManagerUser");
+
+                    b.Navigation("Profession");
+                });
+
             modelBuilder.Entity("KpiEvaluation.Domain.AppRole", b =>
                 {
                     b.Navigation("Permissions");
@@ -1275,6 +1395,8 @@ namespace KpiEvaluation.Infrastructure.Migrations
                     b.Navigation("Employees");
 
                     b.Navigation("KpiCriteria");
+
+                    b.Navigation("ManagerAssignments");
                 });
 #pragma warning restore 612, 618
         }

@@ -10,9 +10,11 @@ public sealed record ExportSpreadsheetQuery(SpreadsheetResource Resource, Spread
     {
         SpreadsheetResource.Employees => [AppPermission.EmployeeManage],
         SpreadsheetResource.Kpis => [AppPermission.KpiManage],
+        SpreadsheetResource.Leaves when Input.Template => [AppPermission.LeaveView, AppPermission.LeaveManage],
         SpreadsheetResource.Leaves => [AppPermission.LeaveView],
         SpreadsheetResource.Evaluations when Input.Template => [AppPermission.EvaluationHistory, AppPermission.EvaluationCreate],
         SpreadsheetResource.Evaluations => [AppPermission.EvaluationHistory],
+        SpreadsheetResource.Calibration => [AppPermission.CalibrationView, AppPermission.EvaluationHistory],
         _ => throw new ValidationException("Geçersiz Excel sayfası.")
     };
 }

@@ -17,18 +17,17 @@ internal static class SpreadsheetWorkbook
         SpreadsheetResource.Kpis => "KPI Yönetimi",
         SpreadsheetResource.Leaves => "İzin Takibi",
         SpreadsheetResource.Evaluations => "Değerlendirmeler",
+        SpreadsheetResource.Calibration => "Onaylı Amir Sonuçları",
         _ => throw new ValidationException("Geçersiz Excel sayfası.")
     };
 
     internal static string[] Headers(SpreadsheetResource resource) => resource switch
     {
-        SpreadsheetResource.Employees => ["ID", "Ad Soyad", "Meslek ID", "Meslek", "Aktif"],
-        SpreadsheetResource.Leaves => ["ID", "Çalışan ID", "Çalışan", "Ekip", "Başlangıç", "Bitiş", "İzin Türü", "Açıklama", "Aktif"],
-        SpreadsheetResource.Kpis => ["ID", "KPI", "Açıklama", "Ekip ID'leri", "Ekipler", "Herkes", "Sıra", "Aktif", "Kategori",
-            "Şirket Hedefi ID", "Şirket Hedefi", "Ölçüm Türü", "Birim", "Hedef Değer", "Hedef Yönü", "Ağırlık", "Veri Kaynağı",
-            "Gözden Geçirme", "Geçerlilik Başlangıcı", "Geçerlilik Bitişi", "Belirli", "Ölçülebilir", "Ulaşılabilir", "İlgili", "Zaman Sınırlı"],
-        SpreadsheetResource.Evaluations => ["Aktarım Grubu", "Çalışan ID", "Çalışan", "Ekip", "Dönem ID", "Dönem", "Değerlendirme Tarihi",
-            "Genel Not", "KPI ID", "KPI", "Puan", "Gerçekleşen", "Madde Notu", "Durum", "Amir Görüşü", "Çalışan Görüşü", "Gelişim Aksiyonu", "Takip Tarihi", "Değerlendiren Kullanıcı ID", "Değerlendiren"],
+        SpreadsheetResource.Employees => ["Ad Soyad", "Meslek", "Aktiflik durumu"],
+        SpreadsheetResource.Leaves => ["Adı Soyadı", "Kalan İzin Gün Sayısı", "İzin Hak Ediş Tarihi"],
+        SpreadsheetResource.Kpis => ["KPI", "Açıklama", "Ekipler", "Herkes", "Kategori", "Bağlı olduğu şirket Hedefi"],
+        SpreadsheetResource.Evaluations => ["Çalışan", "Ekip", "Dönem", "Not", "KPI", "Puan", "Amir Görüşü", "Değerlendiren Amir"],
+        SpreadsheetResource.Calibration => ["Çalışan", "Ekip", "Dönem", "Amir Sonuçları", "Ortalama Puan"],
         _ => throw new ValidationException("Geçersiz Excel sayfası.")
     };
 
@@ -41,8 +40,75 @@ internal static class SpreadsheetWorkbook
         sheet.Row(1).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8EEF5");
         sheet.SheetView.FreezeRows(1);
         sheet.Columns(1, Headers(resource).Length).Width = 23;
+        if (resource == SpreadsheetResource.Calibration)
+        {
+            sheet.Column(4).Width = 50;
+            sheet.Column(4).Style.Alignment.WrapText = true;
+            sheet.Column(5).Style.NumberFormat.Format = "0.00";
+        }
+        if (resource == SpreadsheetResource.Leaves)
+        {
+            sheet.Column(1).Width = 32;
+            sheet.Column(2).Style.NumberFormat.Format = "0.##";
+            sheet.Column(3).Style.DateFormat.Format = "dd.mm.yyyy";
+        }
+        if (resource == SpreadsheetResource.Kpis)
+        {
+            sheet.Column(1).Width = 45;
+            sheet.Column(2).Width = 60;
+            sheet.Columns(1, 2).Style.Alignment.WrapText = true;
+            sheet.Column(6).Width = 35;
+        }
         var instructions = workbook.AddWorksheet("Kullanım");
-        string[] notes = [
+        string[] notes = resource == SpreadsheetResource.Calibration ? [
+            "Bu dosya Onaylı Amir Sonuçları raporudur. Şablon indir aynı sütunlarla boş veri sayfası oluşturur; dosya içe aktarma amacıyla kullanılmaz.",
+            "Veri sayfasında yalnızca Çalışan, Ekip, Dönem, Amir Sonuçları ve Ortalama Puan sütunları bulunur; her çalışan ve dönem için bir satır yazılır.",
+            "Seçili dönemlerdeki ve dosyayı indiren kullanıcının erişebildiği onaylı değerlendirmeler dışa aktarılır.",
+            "Puanlar 100 üzerinden, amir etki oranları yüzde olarak gösterilir. Ortalama Puan güncel ekip oranlarıyla hesaplanır.",
+            "Atanmış amirlerin onaylı değerlendirmeleri tamamlanmamışsa Ortalama Puan hücresi boş bırakılır; eksik puan sıfır kabul edilmez.",
+            "Güncel atamaya dahil olmayan veya değerlendiren kimliği bilinmeyen kayıtlar Amir Sonuçları içinde belirtilir; birleşik hesaba katılmaz."
+        ] : resource == SpreadsheetResource.Evaluations ? [
+            "İlk veri sayfasındaki sütunlar: Çalışan, Ekip, Dönem, Not, KPI, Puan, Amir Görüşü, Değerlendiren Amir. Başlıkların sırası değişebilir.",
+            "Her KPI ayrı satırdır. Aynı değerlendirmeye ait satırlarda Çalışan, Ekip, Dönem ve Amir Görüşü aynı olmalıdır.",
+            "Çalışan ve ekip adları birlikte eşleştirilir. Dönem ve KPI adlarını yardımcı sayfalardan alın; teknik ID veya aktarım grubu gerekmez.",
+            "Aynı adla birden fazla çalışan veya uygun KPI bulunursa kayıt alınmaz; satır hatası bildirilir. Tüm güncel KPI soruları bulunmalıdır.",
+            "Puanlar her soru için 1–5 arasındadır. Geçici kayıtta boş puan 0 kabul edilir; kalıcı kayıtta tüm sorular puanlanmalıdır.",
+            "Not, soruya ait kısa nottur. Amir Görüşü değerlendirmeye ait ortak açıklamadır; aynı değerlendirmenin tüm satırlarında aynı olmalıdır.",
+            "Değerlendiren Amir bilgilendirme ve satırları gruplama amaçlıdır. Kayıt her zaman dosyayı yükleyen kullanıcıya ait oluşturulur; başka biri adına kayıt yapılmaz.",
+            "Mevcut çalışan/dönem/değerlendiren kayıtları atlanır. İçe aktarma var olan değerlendirmeleri değiştirmez; yeni kayıtlar varsayılan olarak taslaktır.",
+            "Kalıcı kayıt yükleme ekranından seçilir ve oluşturma/onaylama yetkileri gerektirir. Sayısal KPI için gereken gerçekleşen değer sade dosyada yoksa uygulamadan değerlendirme yapılmalıdır.",
+            "En fazla 10 MB ve 10.000 veri satırı yüklenebilir. Formül yerine değer kullanın; başarılı kayıtlar saklanır, hatalar kaynak satırıyla gösterilir.",
+            "Önceki teknik ID içeren değerlendirme şablonları da okunabilir; yeni indirmelerde yalnızca sade sütunlar yer alır."
+        ] : resource == SpreadsheetResource.Kpis ? [
+            "Veri sayfasında yalnızca KPI, Açıklama, Ekipler, Herkes, Kategori ve Bağlı olduğu şirket Hedefi sütunları bulunur. Teknik ID gerekmez; sütun sırası değişebilir.",
+            "Herkes: Evet veya Hayır (1/0 ve TRUE/FALSE da geçerlidir). Herkes=Evet tüm ekipleri kapsar; Ekipler alanı dikkate alınmaz. Herkes=Hayır olduğunda en az bir aktif ekip adı gerekir.",
+            "Birden fazla ekip adını noktalı virgülle ayırın (örnek: DevOps; Yazılım). Adları Ekip Referansları sayfasından alabilirsiniz.",
+            "Bağlı olduğu şirket Hedefi isteğe bağlıdır. Hedef Referansları sayfasındaki aktif hedef adlarından birini kullanın; birden fazla hedefle eşleşen adlar alınmaz.",
+            "KPI başlığı ve ekip kapsamı tek bir mevcut kayıtla eşleşirse açıklama, kategori ve şirket hedefi güncellenir; eşleşme yoksa yeni KPI oluşturulur. Belirsiz eşleşmeler ve dosyada tekrarlanan KPI/kapsam çiftleri alınmaz.",
+            "Başlık veya ekip kapsamı değişikliği için uygulamadaki Düzenle işlemini kullanın. Yeni KPI standart manuel 1–5 puanlama, sıfır ağırlık, sıra 1 ve aktif durumla oluşturulur; mevcut kayıtların dosyada olmayan ayarları ve aktiflik durumu korunur.",
+            "KPI en fazla 1.000, Açıklama 2.000, Kategori 150 karakter olabilir. Çok satırlı metinler desteklenir. Formül yerine hücre değeri kullanın.",
+            "En fazla 10 MB ve 10.000 veri satırı yüklenebilir. Başarılı kayıtlar saklanır, hatalar kaynak satırıyla bildirilir. Eski teknik ID içeren KPI dosyaları da okunabilir."
+        ] : resource == SpreadsheetResource.Leaves ? [
+            "Veri sayfasında yalnızca Adı Soyadı, Kalan İzin Gün Sayısı ve İzin Hak Ediş Tarihi sütunları bulunur; teknik ID gerekmez.",
+            "İlk sayfa okunur. Başlıklar ilk dolu satırda olmalıdır; üstte boş satır ve farklı sayfa adı kullanılabilir. Sütunların sırası değişebilir.",
+            "Adı Soyadı tek bir aktif çalışanla eşleşirse mevcut kayıt kullanılır. Sistemde bulunmayan ad için Meslek atanmadı mesleğiyle yeni çalışan oluşturulur; eksik meslek kaydı da oluşturulur. Giriş hesabı açılmaz.",
+            "Adı Soyadı birden fazla aktif çalışanla eşleşirse satır alınmaz. Bu adla yalnızca pasif çalışan varsa yeni kayıt açılmaz; önce mevcut çalışanı etkinleştirin.",
+            "Her çalışan için tek bir güncel bakiye saklanır. Tekrar yüklemede kalan gün ve hak ediş tarihi güncellenir; dosyada bulunmayan çalışanlar değişmez. Aynı çalışan adı bir dosyada tekrar edemez.",
+            "Kalan İzin Gün Sayısı zorunlu sayısal değerdir. Yarım gün ve negatif bakiyeler desteklenir; ondalık ayırıcı virgül veya nokta olabilir.",
+            "İzin Hak Ediş Tarihi zorunludur: Excel tarih hücresi, dd.MM.yyyy veya yyyy-MM-dd kullanın. Tarih ve kalan gün dosyadan aynen alınır; otomatik hak ediş veya iş günü hesabı yapılmaz.",
+            "En fazla 10 MB ve 10.000 veri satırı yüklenebilir. Formül yerine değer kullanın; başarılı kayıtlar saklanır, hatalar özgün Excel satır numarasıyla gösterilir.",
+            "Eski başlangıç/bitiş tarihli izin kayıtları korunur. Önceki ID ve Çalışan ID içeren dosyalar eski kayıt biçiminde okunmaya devam eder."
+        ] : resource == SpreadsheetResource.Employees ? [
+            "İlk veri sayfasında yalnızca Ad Soyad, Meslek ve Aktiflik durumu sütunları bulunur; teknik ID gerekmez.",
+            "Meslek adı sistemde yoksa yeni aktif meslek oluşturulur. Meslek alanı boşsa veya sütun yoksa yeni çalışan Meslek atanmadı mesleğiyle eklenir; mevcut çalışanın mesleği korunur.",
+            "Ad Soyad tek bir mevcut kayıtla eşleşirse aynı çalışan güncellenir; eşleşme yoksa yeni çalışan oluşturulur. Meslek belirtilmişse mevcut çalışana uygulanır. Yalnızca personel kaydı oluşturulur; giriş hesabı açılmaz.",
+            "Pasif çalışanlar da eşleştirmeye dahildir. Aynı adla birden fazla çalışan varsa belirtilen meslek tek bir kayıtla eşleşmelidir; belirsiz eşleşmeler alınmaz. Pasif meslekler otomatik etkinleştirilmez.",
+            "Aynı Ad Soyad dosyada tekrar edemez. Ad değişikliği için uygulamadaki Düzenle işlemini kullanın.",
+            "Aktiflik durumu: Evet veya Hayır; 1/0 ve TRUE/FALSE de kabul edilir. Boş değer Evet kabul edilir. Hayır mevcut kaydı pasife alır.",
+            "Yeni veya mesleği değişen çalışanlar mesleğin ekip amirlerini devralır. Mesleği değişmeyen çalışanların amir bağlılıkları ve geçmiş değerlendirmeler korunur.",
+            "En fazla 10 MB ve 10.000 veri satırı yüklenebilir. Formül yerine değer kullanın; başarılı satırlar saklanır, hatalar kaynak satırıyla bildirilir.",
+            "Önceki ID, Meslek ID ve Aktif sütunlarını içeren çalışan dosyaları da okunabilir; yeni şablon ve çıktılar yalnızca sade üç sütunu içerir."
+        ] : [
             "Yalnızca ilk veri sayfası içe aktarılır. Başlıkları değiştirmeyin; sütunların sırası değişebilir.",
             "En fazla 10 MB ve 10.000 veri satırı yüklenebilir. Formül hücreleri desteklenmez.",
             "ID boşsa yeni kayıt oluşturulur; doluysa ilgili kayıt güncellenir. Referans ID'leri yardımcı sayfalardan alınır; ad sütunları bilgilendirme amaçlıdır.",
@@ -106,18 +172,31 @@ internal static class SpreadsheetWorkbook
             using var workbook = new XLWorkbook(buffer);
             var sheet = workbook.Worksheets.FirstOrDefault()
                 ?? throw new ValidationException("Excel dosyasında veri sayfası bulunamadı.");
-            if (sheet.Name != SheetName(resource)) throw new ValidationException($"{SheetName(resource)} şablonunu kullanmalısınız.");
-            if ((sheet.LastRowUsed()?.RowNumber() ?? 0) > MaxRows + 1 || (sheet.LastColumnUsed()?.ColumnNumber() ?? 0) > 40)
+            if (resource != SpreadsheetResource.Leaves && sheet.Name != SheetName(resource))
+                throw new ValidationException($"{SheetName(resource)} şablonunu kullanmalısınız.");
+            var headerRow = resource == SpreadsheetResource.Leaves ? sheet.FirstRowUsed(XLCellsUsedOptions.Contents)?.RowNumber() ?? 1 : 1;
+            if ((sheet.LastRowUsed()?.RowNumber() ?? 0) > MaxRows + headerRow || (sheet.LastColumnUsed()?.ColumnNumber() ?? 0) > 40)
                 throw new ValidationException("Excel dosyası en fazla 10.000 veri satırı ve 40 sütun içerebilir.");
-            var headers = sheet.Row(1).CellsUsed().ToArray();
+            var headers = sheet.Row(headerRow).CellsUsed(XLCellsUsedOptions.Contents).ToArray();
             if (headers.Any(x => x.HasFormula)) throw new ValidationException("Başlıklar formül içeremez.");
             var names = headers.Select(x => x.GetString().Trim()).ToArray();
-            var requiredHeaders = Headers(resource).Where(name => resource != SpreadsheetResource.Evaluations
-                || name is not ("Değerlendiren Kullanıcı ID" or "Değerlendiren"));
+            var legacyEvaluation = resource == SpreadsheetResource.Evaluations && names.Contains("Aktarım Grubu");
+            string[] legacyHeaders = ["Aktarım Grubu", "Çalışan ID", "Çalışan", "Ekip", "Dönem ID", "Dönem", "Değerlendirme Tarihi",
+                "Genel Not", "KPI ID", "KPI", "Puan", "Gerçekleşen", "Madde Notu", "Durum", "Amir Görüşü", "Çalışan Görüşü", "Gelişim Aksiyonu", "Takip Tarihi"];
+            var legacyEmployees = resource == SpreadsheetResource.Employees && names.Contains("Meslek ID");
+            string[] legacyEmployeeHeaders = ["ID", "Ad Soyad", "Meslek ID", "Meslek", "Aktif"];
+            var legacyLeaves = resource == SpreadsheetResource.Leaves && names.Contains("Çalışan ID");
+            string[] legacyLeaveHeaders = ["ID", "Çalışan ID", "Çalışan", "Ekip", "Başlangıç", "Bitiş", "İzin Türü", "Açıklama", "Aktif"];
+            var legacyKpis = resource == SpreadsheetResource.Kpis && names.Contains("Ekip ID'leri");
+            string[] legacyKpiHeaders = ["ID", "KPI", "Açıklama", "Ekip ID'leri", "Ekipler", "Herkes", "Sıra", "Aktif", "Kategori",
+                "Şirket Hedefi ID", "Şirket Hedefi", "Ölçüm Türü", "Birim", "Hedef Değer", "Hedef Yönü", "Ağırlık", "Veri Kaynağı",
+                "Gözden Geçirme", "Geçerlilik Başlangıcı", "Geçerlilik Bitişi", "Belirli", "Ölçülebilir", "Ulaşılabilir", "İlgili", "Zaman Sınırlı"];
+            var requiredHeaders = legacyKpis ? legacyKpiHeaders : legacyLeaves ? legacyLeaveHeaders : legacyEmployees ? legacyEmployeeHeaders : legacyEvaluation ? legacyHeaders : Headers(resource).Where(name => (resource != SpreadsheetResource.Evaluations
+                || name != "Değerlendiren Amir") && (resource != SpreadsheetResource.Employees || name != "Meslek"));
             if (names.Distinct(StringComparer.Ordinal).Count() != names.Length || requiredHeaders.Except(names).Any())
                 throw new ValidationException("Excel sütunları şablonla eşleşmiyor. Şablonu yeniden indirip başlıkları koruyun.");
             var rows = new List<SpreadsheetRow>();
-            foreach (var row in sheet.RowsUsed().Where(x => x.RowNumber() > 1))
+            foreach (var row in sheet.RowsUsed().Where(x => x.RowNumber() > headerRow))
             {
                 ct.ThrowIfCancellationRequested();
                 var values = headers.ToDictionary(x => x.GetString().Trim(), x =>
@@ -127,6 +206,7 @@ internal static class SpreadsheetWorkbook
                     return cell.DataType == XLDataType.DateTime ? cell.GetDateTime().ToString("s", CultureInfo.InvariantCulture)
                         : cell.Value.ToString(CultureInfo.InvariantCulture).Trim();
                 });
+                if (resource == SpreadsheetResource.Employees && !legacyEmployees) values.TryAdd("Meslek", "");
                 if (values.Values.Any(x => x.Length > 0)) rows.Add(new(row.RowNumber(), values));
             }
             if (rows.Count == 0) throw new ValidationException("Excel dosyasında aktarılacak veri bulunamadı.");

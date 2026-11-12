@@ -18,7 +18,8 @@ public sealed class DashboardRepository(KpiDbContext db) : IDashboardRepository
             employeeQuery = user.RoleCode switch
             {
                 RoleCodes.Administrator or RoleCodes.HumanResources => employeeQuery,
-                RoleCodes.FirstManager or RoleCodes.SecondManager => employeeQuery.Where(x => x.FirstManagerUserId == requesterUserId || x.SecondManagerUserId == requesterUserId),
+                RoleCodes.FirstManager or RoleCodes.SecondManager => employeeQuery.Where(x => x.FirstManagerUserId == requesterUserId || x.SecondManagerUserId == requesterUserId
+                    || x.Profession.ManagerAssignments.Any(manager => manager.ManagerUserId == requesterUserId)),
                 RoleCodes.Employee => employeeQuery.Where(x => x.Id == user.EmployeeId),
                 _ => employeeQuery.Where(_ => false)
             };
@@ -32,7 +33,9 @@ public sealed class DashboardRepository(KpiDbContext db) : IDashboardRepository
         var rows = await query.OrderByDescending(x => x.ScorePercentage)
             .Select(x => new EvaluationSummaryDto(x.Id, x.EmployeeNameSnapshot, x.ProfessionNameSnapshot,
                 x.PeriodNameSnapshot,x.TotalScore,x.AverageScore,x.EvaluationDate,x.GeneralNote,x.WeightedScore,x.Status,x.ManagerFeedback,x.EmployeeFeedback,x.DevelopmentAction,x.FollowUpDate,
-                x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt,false,false,x.EmployeeId,x.ProfessionIdSnapshot,x.EvaluationPeriodId,false,x.EvaluatorManagerLevelSnapshot))
+                x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt,false,false,x.EmployeeId,x.ProfessionIdSnapshot,x.EvaluationPeriodId,false,x.EvaluatorManagerLevelSnapshot,
+                db.TeamManagerAssignments.Where(manager => manager.ProfessionId == x.ProfessionIdSnapshot).OrderBy(manager => manager.Position)
+                    .Select(manager => new TeamManagerWeightDto(manager.ManagerUserId, manager.ManagerUser.DisplayName, manager.Position, manager.WeightPercent)).ToList()))
             .ToListAsync(ct);
         var evaluated = await query.Select(x => x.EmployeeId).Distinct().CountAsync(ct);
         var goalRows=await db.EmployeeEvaluationDetails.AsNoTracking()

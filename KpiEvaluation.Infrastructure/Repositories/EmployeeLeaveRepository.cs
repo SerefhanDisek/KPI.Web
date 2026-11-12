@@ -7,6 +7,51 @@ namespace KpiEvaluation.Infrastructure.Repositories;
 
 public sealed class EmployeeLeaveRepository(KpiDbContext db) : IEmployeeLeaveRepository
 {
+    public async Task SaveBalanceAsync(EmployeeLeaveBalanceSaveInput input, int userId, CancellationToken ct = default)
+    {
+        if (input.EntitlementDate == default) throw new ValidationException("Geçerli bir izin hak ediş tarihi belirtmelisiniz.");
+        if (input.RemainingDays != decimal.Round(input.RemainingDays, 2)
+            || input.RemainingDays is < -9999999999999999.99m or > 9999999999999999.99m)
+            throw new ValidationException("Kalan İzin Gün Sayısı geçerli aralıkta ve en fazla iki ondalık basamaklı olmalıdır.");
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct) : null;
+        if (!await db.Employees.AnyAsync(x => x.Id == input.EmployeeId && x.IsActive, ct))
+            throw new ValidationException("Aktif bir çalışan seçmelisiniz.");
+        var entity = await db.EmployeeLeaveBalances.SingleOrDefaultAsync(x => x.EmployeeId == input.EmployeeId, ct);
+        if (entity is null)
+        {
+            entity = new EmployeeLeaveBalance { EmployeeId = input.EmployeeId, CreatedByUserId = userId };
+            db.EmployeeLeaveBalances.Add(entity);
+        }
+        else
+        {
+            entity.UpdatedAt = DateTime.UtcNow;
+            entity.UpdatedByUserId = userId;
+        }
+        entity.RemainingDays = input.RemainingDays;
+        entity.EntitlementDate = input.EntitlementDate;
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+    }
+
+    public async Task<EmployeeLeaveBalancePageDto> GetBalancesAsync(int? employeeId, int? professionId, DateOnly? from, DateOnly? to,
+        bool activeOnly, int page, int pageSize, CancellationToken ct = default)
+    {
+        if (page < 1 || pageSize is < 1 or > 100 || (long)(page - 1) * pageSize > int.MaxValue)
+            throw new ValidationException("Sayfa geçerli bir aralıkta, sayfa boyutu 1–100 arasında olmalıdır.");
+        if (from is not null && to is not null && to < from) throw new ValidationException("Bitiş tarihi başlangıçtan önce olamaz.");
+        var query = db.EmployeeLeaveBalances.AsNoTracking().Where(x => (!activeOnly || x.Employee.IsActive)
+            && (employeeId == null || x.EmployeeId == employeeId)
+            && (professionId == null || x.Employee.ProfessionId == professionId)
+            && (from == null || x.EntitlementDate >= from) && (to == null || x.EntitlementDate <= to));
+        var count = await query.CountAsync(ct);
+        var items = await query.OrderBy(x => x.Employee.FullName).ThenBy(x => x.Id)
+            .Select(x => new EmployeeLeaveBalanceDto(x.Id, x.EmployeeId, x.Employee.FullName, x.Employee.ProfessionId,
+                x.Employee.Profession.Name, x.RemainingDays, x.EntitlementDate))
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return new(items, count, page, pageSize);
+    }
+
     public async Task<EmployeeLeavePageDto> GetAsync(int? employeeId, int? professionId, DateOnly? from, DateOnly? to,
         bool activeOnly, int page, int pageSize, CancellationToken ct = default)
     {

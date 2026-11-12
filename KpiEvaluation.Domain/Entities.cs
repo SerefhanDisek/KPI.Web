@@ -16,7 +16,18 @@ public sealed class Profession
     public int? SecondManagerUserId { get; set; }
     public AppUser? SecondManagerUser { get; set; }
     public ICollection<Employee> Employees { get; set; } = [];
+    public ICollection<TeamManagerAssignment> ManagerAssignments { get; set; } = [];
     public ICollection<KpiCriterion> KpiCriteria { get; set; } = [];
+}
+
+public sealed class TeamManagerAssignment
+{
+    public int ProfessionId { get; set; }
+    public Profession Profession { get; set; } = null!;
+    public int ManagerUserId { get; set; }
+    public AppUser ManagerUser { get; set; } = null!;
+    public int Position { get; set; }
+    public decimal WeightPercent { get; set; }
 }
 
 public sealed class Employee

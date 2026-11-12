@@ -43,9 +43,9 @@ async function api(url, options = {}) {
   return response.status === 204 ? null : responseType === 'blob' ? response.blob() : response.json();
 }
 
-function spreadsheetActions(canImport = true, importOnly = false) {
-  const description=importOnly?(canImport?'Çalışanların izinlerini Excel dosyasından yükleyip aşağıdaki listede görüntüleyin.':'Excel yüklemek için izin yükleme yetkisi gerekir.'):(canImport?'Seçili filtrelerdeki kayıtları indirin veya Excel dosyasından aktarın.':'Kayıtları indirebilirsiniz. İçe aktarma ve şablon indirme için kayıt yönetme yetkisi gerekir.');
-  return `<section class="card spreadsheet-toolbar" aria-labelledby="excel-toolbar-title"><div><h2 id="excel-toolbar-title">Excel işlemleri</h2><p>${description}</p></div><div class="actions">${importOnly?'':'<button class="button secondary" id="excel-export">Excel dışa aktar</button>'}<button class="button secondary" id="excel-template" ${canImport?'':'disabled'}>Şablon indir</button><button class="button primary" id="excel-import" ${canImport?'':'disabled'}>Excel ${importOnly?'yükle':'içe aktar'}</button></div></section>`;
+function spreadsheetActions(canImport = true, importOnly = false, exportOnly = false, canTemplate = canImport) {
+  const description=exportOnly?'Seçili dönemlerdeki onaylı amir sonuçlarını veya aynı sütunlardaki boş şablonu indirin.':importOnly?(canImport?'Çalışanların izinlerini Excel dosyasından yükleyip aşağıdaki listede görüntüleyin.':'Excel yüklemek için izin yükleme yetkisi gerekir.'):(canImport?'Seçili filtrelerdeki kayıtları indirin veya Excel dosyasından aktarın.':'Kayıtları indirebilirsiniz. İçe aktarma ve şablon indirme için kayıt yönetme yetkisi gerekir.');
+  return `<section class="card spreadsheet-toolbar" aria-labelledby="excel-toolbar-title"><div><h2 id="excel-toolbar-title">Excel işlemleri</h2><p>${description}</p></div><div class="actions">${importOnly?'':'<button class="button secondary" id="excel-export">Excel dışa aktar</button>'}${exportOnly&&!canTemplate?'':`<button class="button secondary" id="excel-template" ${canTemplate?'':'disabled'}>Şablon indir</button>`}${exportOnly?'':`<button class="button primary" id="excel-import" ${canImport?'':'disabled'}>Excel ${importOnly?'yükle':'içe aktar'}</button>`}</div></section>`;
 }
 
 function downloadFile(blob, fileName) {
@@ -73,30 +73,33 @@ function bindSpreadsheetActions(resource, getFilters, reload) {
   const upload = document.querySelector('#excel-import');
   if (upload) upload.onclick = () => {
     const evaluation = resource === 'evaluations';
-    openDialog('Excel içe aktar', `<div class="form-grid"><p class="field full">Önce şablonu indirip doldurun veya dışa aktardığınız dosyayı kullanın. En fazla 10 MB ve 10.000 veri satırı yükleyebilirsiniz.</p>
+    const employee = resource === 'employees';
+    const leave = resource === 'leaves';
+    const kpi = resource === 'kpis';
+    openDialog('Excel içe aktar', `<div class="form-grid"><p class="field full">${leave ? 'Adı Soyadı, Kalan İzin Gün Sayısı ve İzin Hak Ediş Tarihi sütunlarını içeren dosyanızı veya indirdiğiniz şablonu kullanın.' : 'Önce şablonu indirip doldurun veya dışa aktardığınız dosyayı kullanın.'} En fazla 10 MB ve 10.000 veri satırı yükleyebilirsiniz.</p>
       <div class="field full"><label for="excel-file">Excel dosyası (.xlsx)</label><input class="input" id="excel-file" type="file" name="file" accept=".xlsx" required></div>
-      <p class="field full">${evaluation ? 'Her KPI ayrı satırda olmalı; aynı değerlendirme için aynı Aktarım Grubu kullanılmalıdır. Kayıtlar geçici olarak saklanır. Aynı çalışan ve döneme ait mevcut değerlendirmeler atlanır.' : 'ID boşsa yeni kayıt oluşturulur; doluysa mevcut kayıt güncellenir. Aktif alanı Hayır olan kayıtlar pasif yapılır.'} Başarılı kayıtlar saklanır; hatalar satır numarasıyla gösterilir.</p>
-      ${evaluation && hasPermission(2) ? '<label class="check-row"><input type="checkbox" name="permanentEvaluations"> Kalıcı kaydet (onaylanır ve değiştirilemez)</label>' : ''}
+      <p class="field full">${evaluation ? 'Her KPI ayrı satırda olmalı. Çalışan ve Ekip, Dönem ve KPI adlarıyla eşleştirilir; aynı değerlendirmenin Amir Görüşü tüm satırlarda aynı olmalıdır. Değerlendiren Amir bilgi amaçlıdır; kayıt size ait oluşturulur. Size ait mevcut çalışan/dönem kayıtları atlanır.' : employee ? 'Ad Soyad ile mevcut çalışan eşleştirilir; eşleşme yoksa yeni çalışan oluşturulur. Belirtilen meslek uygulanır; sistemde yoksa meslek de oluşturulur. Meslek boşsa mevcut meslek korunur, yeni çalışan için Meslek atanmadı kullanılır. Aktiflik durumu Evet veya Hayır olmalıdır; Hayır mevcut kaydı pasife alır. Belirsiz eşleşmeler alınmaz. Yalnızca personel kaydı oluşturulur.' : leave ? 'Adı Soyadı ile mevcut çalışan eşleştirilir. Sistemde bulunmayan kişiler Meslek atanmadı mesleğiyle yeni çalışan olarak eklenir ve izin listesinde görünür. Yalnızca personel kaydı oluşturulur. Tekrar yükleme çalışanın mevcut bakiyesini ve hak ediş tarihini günceller; dosyada aynı çalışan adı tekrar edemez. Kalan gün sayısında yarım gün ve negatif değerler desteklenir. Tarihi Excel tarihi veya gg.aa.yyyy biçiminde yazabilirsiniz. Dosyadaki bakiye ve tarih aynen alınır; otomatik izin hesabı yapılmaz.' : kpi ? 'KPI başlığı ve ekip kapsamı birlikte eşleştirilir. Ekip adlarını noktalı virgülle ayırın; Herkes=Evet tüm ekipleri kapsar. Şirket hedefi adla eşleştirilir ve isteğe bağlıdır. Tek eşleşmede mevcut KPI güncellenir; eşleşme yoksa standart 1–5 puanlamalı yeni KPI oluşturulur. Aynı KPI ve kapsam dosyada tekrar edemez.' : 'ID boşsa yeni kayıt oluşturulur; doluysa mevcut kayıt güncellenir. Aktif alanı Hayır olan kayıtlar pasif yapılır.'} Başarılı kayıtlar saklanır; hatalar satır numarasıyla gösterilir.</p>
+      ${evaluation && hasPermission(2) ? '<label class="check-row"><input type="checkbox" name="permanentEvaluations"> Kalıcı kaydet (onaylanır)</label>' : ''}
       <label class="check-row"><input type="checkbox" name="confirmed" required> Dosyadaki kayıtların aktarılmasını ve belirtilen değişiklikleri onaylıyorum.</label></div>`, async form => {
       const file = form.get('file');
       if (!file?.size || !file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Dolu bir .xlsx dosyası seçmelisiniz.');
       if (file.size > 10 * 1024 * 1024) throw new Error('Dosya en fazla 10 MB olabilir.');
       const permanent = form.get('permanentEvaluations') === 'on';
-      if (permanent && !confirm('Değerlendirmeler kalıcı olarak onaylanacak ve değiştirilemeyecek. Devam edilsin mi?')) throw new Error('Kalıcı kayıt iptal edildi.');
+      if (permanent && !confirm('Değerlendirmeler kalıcı olarak onaylanacak. Devam edilsin mi?')) throw new Error('Kalıcı kayıt iptal edildi.');
       const body = new FormData(); body.append('file', file); body.append('permanentEvaluations', String(permanent));
       const result = await api(`/api/spreadsheets/${resource}/import`, {method:'POST', body});
       await reload();
-      setTimeout(() => showSpreadsheetResult(result), 0);
+      setTimeout(() => showSpreadsheetResult(result, resource), 0);
     });
     dialogContent.querySelector('[type="submit"]').textContent = 'İçe aktar';
   };
 }
 
-function showSpreadsheetResult(result) {
+function showSpreadsheetResult(result, resource) {
   dialog.classList.remove('wide');
   dialogContent.innerHTML = `<div class="dialog-head"><h2>Excel aktarım sonucu</h2><button class="icon-button" data-close aria-label="Kapat">${icon('close')}</button></div>
     <div class="dialog-body"><p role="status">${result.importedCount} kayıt aktarıldı · ${result.skippedCount} kayıt atlandı · ${result.errors.length} kayıt hatalı.</p>
-    ${result.errors.length ? `<p>Hatalı kayıtları düzeltip yeniden yükleyebilirsiniz. Başarıyla oluşturulan kayıtların tekrar eklenmemesi için onları dosyadan çıkarın.</p><ul>${result.errors.slice(0,100).map(error => `<li>${esc(error)}</li>`).join('')}</ul>${result.errors.length>100?'<p>İlk 100 hata gösteriliyor. Tümünü hata listesinden indirebilirsiniz.</p>':''}` : ''}</div>
+    ${result.errors.length ? `<p>${resource === 'kpis' ? 'Hatalı kayıtları düzeltip yeniden yükleyebilirsiniz. Altı sütunlu dosya aynı başlık ve ekip kapsamıyla eşleşen mevcut KPI kayıtlarını günceller.' : resource === 'leaves' ? 'Hatalı kayıtları düzeltip yeniden yükleyebilirsiniz. Üç sütunlu dosyayı tekrar yüklemek çalışanın mevcut bakiyesini ve hak ediş tarihini günceller.' : 'Hatalı kayıtları düzeltip yeniden yükleyebilirsiniz. Başarıyla oluşturulan kayıtların tekrar eklenmemesi için onları dosyadan çıkarın.'}</p><ul>${result.errors.slice(0,100).map(error => `<li>${esc(error)}</li>`).join('')}</ul>${result.errors.length>100?'<p>İlk 100 hata gösteriliyor. Tümünü hata listesinden indirebilirsiniz.</p>':''}` : ''}</div>
     <div class="dialog-foot">${result.errors.length ? '<button class="button secondary" id="excel-errors">Hata listesini indir</button>' : ''}<button class="button primary" data-close>Kapat</button></div>`;
   dialogContent.querySelectorAll('[data-close]').forEach(button => button.onclick = () => dialog.close());
   const errors = document.querySelector('#excel-errors');
@@ -109,7 +112,7 @@ const hasPermission = permission => state.user?.permissions?.includes(permission
 function selectionFilter(id, label, items, selected, placeholder, {multiple = true, clearable = true} = {}) {
   const values = Array.isArray(selected) ? selected.map(String) : selected==null||selected==='' ? [] : [String(selected)];
   const names = items.filter(x=>values.includes(String(x.id))).map(x=>x.name??x.fullName);
-  return `<div class="field"><span class="filter-label" id="${id}-label">${esc(label)}</span><details class="multi-filter" id="${id}" data-multiple="${multiple}" data-placeholder="${esc(placeholder)}"><summary class="filter-select" aria-labelledby="${id}-label ${id}-summary"><span id="${id}-summary">${esc(names.length===1?names[0]:names.length?`${names.length} seçim`:placeholder)}</span></summary><div class="multi-filter-options">${clearable?`<button type="button" class="multi-filter-reset">${esc(placeholder)}</button>`:''}${items.map(x=>`<label><input type="${multiple?'checkbox':'radio'}" name="${id}" value="${esc(x.id)}" ${values.includes(String(x.id))?'checked':''}><span>${esc(x.name??x.fullName)}</span></label>`).join('')}</div></details></div>`;
+  return `<div class="field"><span class="filter-label" id="${id}-label">${esc(label)}</span><details class="multi-filter" id="${id}" data-multiple="${multiple}" data-placeholder="${esc(placeholder)}"><summary class="filter-select" aria-labelledby="${id}-label ${id}-summary"><span id="${id}-summary">${esc(names.length===1?names[0]:names.length?`${names.length} seçim`:placeholder)}</span></summary><div class="multi-filter-options"><div class="multi-filter-search">${icon('search')}<input type="search" class="input" aria-label="${esc(label)} seçeneklerinde ara" placeholder="Seçeneklerde ara…" autocomplete="off" spellcheck="false"></div>${clearable?`<button type="button" class="multi-filter-reset">${esc(placeholder)}</button>`:''}${items.map(x=>`<label><input type="${multiple?'checkbox':'radio'}" name="${id}" value="${esc(x.id)}" ${values.includes(String(x.id))?'checked':''}><span>${esc(x.name??x.fullName)}</span></label>`).join('')}<p class="multi-filter-empty" role="status" hidden>Seçenek bulunamadı.</p></div></details></div>`;
 }
 
 const selectedFilterValues = id => [...document.getElementById(id).querySelectorAll('input:checked')].map(x=>x.value);
@@ -118,16 +121,37 @@ function bindSelectionFilters(onChange, root = app) {
   const controller = new AbortController();
   const controls = [...root.querySelectorAll('.multi-filter')];
   controls.forEach(control => {
+    const search = control.querySelector('.multi-filter-search input');
+    const choices = [...control.querySelectorAll('.multi-filter-options > label')];
+    const filterOptions = () => {
+      const term = search.value.trim().normalize('NFC').toLocaleLowerCase('tr-TR');
+      choices.forEach(choice => {
+        choice.hidden = !choice.textContent.normalize('NFC').toLocaleLowerCase('tr-TR').includes(term);
+      });
+      control.querySelector('.multi-filter-empty').hidden = choices.some(choice => !choice.hidden);
+    };
+    search.addEventListener('input', filterOptions, {signal:controller.signal});
+    search.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.isComposing) event.preventDefault();
+      if (event.key === 'ArrowDown') {
+        const first = choices.find(choice => !choice.hidden && !choice.querySelector('input').disabled);
+        if (first) { event.preventDefault(); first.querySelector('input').focus(); }
+      }
+    }, {signal:controller.signal});
+    filterOptions();
     const update = () => {
       const selected = [...control.querySelectorAll('input:checked')];
       control.querySelector('summary span').textContent = selected.length===1 ? selected[0].nextElementSibling.textContent : selected.length ? `${selected.length} seçim` : control.dataset.placeholder;
       if (control.dataset.multiple==='false') { control.open=false; control.querySelector('summary').focus(); }
       onChange(control);
     };
-    control.onchange = update;
+    control.onchange = event => {
+      if (event.target.matches('input[type="checkbox"], input[type="radio"]')) update();
+    };
     const reset = control.querySelector('.multi-filter-reset');
     if (reset) reset.onclick = () => {
-      control.querySelectorAll('input').forEach(input=>input.checked=false);
+      control.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(input=>input.checked=false);
+      search.value = ''; filterOptions();
       update(); control.open=false; control.querySelector('summary').focus();
     };
     control.ontoggle = () => { if (control.open) controls.filter(x=>x!==control).forEach(x=>x.open=false); };
@@ -160,9 +184,10 @@ function enhanceSelects(root) {
       picker.querySelector('.filter-label').textContent = select.required ? `${label} (zorunlu)` : label;
       summary.tabIndex = select.disabled ? -1 : 0;
       picker.querySelector('details').setAttribute('aria-disabled', String(select.disabled));
-      picker.querySelectorAll('input').forEach(input => {
+      picker.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(input => {
         input.disabled = select.disabled || [...select.options].some(option => option.value===input.value && option.disabled);
       });
+      picker.querySelector('.multi-filter-search input').disabled = select.disabled;
       const reset = picker.querySelector('.multi-filter-reset');
       if (reset) reset.disabled = select.disabled;
       if (select.disabled) picker.querySelector('details').open = false;
@@ -268,7 +293,7 @@ function openDialog(title, body, onSubmit, wide = false) {
     form.dataset.saving = 'true';
     const submits = [...form.querySelectorAll('[type="submit"]')];
     submits.forEach(x => x.disabled = true);
-    try { await onSubmit(new FormData(form)); dialog.close(); }
+    try { await onSubmit(new FormData(form)); if (form.isConnected) dialog.close(); }
     catch (error) { toast(error.message, 'error'); }
     finally { form.dataset.saving = 'false'; submits.forEach(x => x.disabled = false); }
   };
@@ -397,17 +422,16 @@ async function dashboardPage() {
     const [data, managers] = await Promise.all([api(`/api/dashboard?${query}`), api(`/api/dashboard/managers${selected ? `?periodId=${selected}` : ''}`)]);
     const results = data.combinedResults || [];
     app.innerHTML = `${pageHead('Gösterge Paneli', 'Ekip performansını ve hedef ilerlemesini tek görünümde izleyin.', selectionFilter('dashboard-period','Dönem',state.periods,selected,'Tüm dönemler',{multiple:false})) }
-      <div class="manager-grid">${managers.map(x => `<button type="button" class="manager-card" data-manager="${x.userId}" aria-haspopup="dialog" aria-label="${esc(x.managerName)} · Değerlendirmeleri görüntüle" ${hasPermission(3)?'':'disabled'}><small>${esc(x.roleName)}</small><strong>${esc(x.managerName)}</strong><div class="manager-teams">Bağlı ekipler: ${x.teams?.length ? x.teams.map(team => `<span class="badge info">${esc(team.name)}</span>`).join('') : 'Henüz ekip bağlı değil'}</div><div class="manager-metrics"><span>Çalışan<b>${x.employeeCount}</b></span><span>Onaylı<b>${x.approvedEvaluationCount}</b></span><span>Bekleyen<b>${x.pendingEvaluationCount}</b></span><span>Ortalama<b>%${formatNumber(x.averagePercentage)}</b></span></div><span class="manager-card-link">${icon('eye')}${hasPermission(3)?'Değerlendirmeleri görüntüle':'Değerlendirme geçmişi yetkisi gerekli'}</span></button>`).join('')}</div>
+      <div class="manager-grid">${managers.map(x => `<button type="button" class="manager-card" data-manager="${x.userId}" aria-haspopup="dialog" aria-label="${esc(x.managerName)} · Değerlendirmeleri görüntüle" ${hasPermission(3)?'':'disabled'}><small>${esc(x.roleName)}</small><strong>${esc(x.managerName)}</strong><div class="manager-teams">Bağlı ekipler: ${x.teams?.length ? x.teams.map(team => `<span class="badge info">${esc(team.name)}</span>`).join('') : 'Henüz ekip bağlı değil'}</div><div class="manager-metrics"><span>Çalışan<b>${x.employeeCount}</b></span><span>Onaylı<b>${x.approvedEvaluationCount}</b></span><span>Bekleyen<b>${x.pendingEvaluationCount}</b></span></div><span class="manager-card-link">${icon('eye')}${hasPermission(3)?'Değerlendirmeleri görüntüle':'Değerlendirme geçmişi yetkisi gerekli'}</span></button>`).join('')}</div>
       <div class="stats-grid">
         ${statCard('users','teal','Toplam çalışan',data.totalEmployees)}
         ${statCard('check','blue','Değerlendirilen',data.evaluatedEmployees)}
         ${statCard('history','amber','Bekleyen',data.notEvaluatedEmployees)}
-        ${statCard('score','navy','Birleşik başarı',data.combinedPercentage == null ? '—' : `%${formatNumber(data.combinedPercentage)}`)}
       </div>
       <div class="grid-2 dashboard-results">
         <section class="card"><div class="card-head"><h2>Birleşik performans sıralaması</h2><span class="badge info">${results.length} kayıt</span></div>
-          <div class="card-body"><p>1. amir %70 + 2. amir %30. İki amirin onaylı değerlendirmeleri tamamlandığında birleşik sonuç hesaplanır.</p></div>
-          <div class="table-wrap">${results.length ? `<table class="table"><thead><tr><th>Çalışan / ekip</th><th>Dönem</th><th>Amir sonuçları</th><th>Birleşik başarı</th></tr></thead><tbody>${results.slice(0, 12).map(row => `<tr><td><div class="person"><span class="person-avatar">${initials(row.employeeName)}</span>${esc(row.employeeName)}</div><small>${esc(row.professionName)}</small></td><td>${esc(row.periodName)}</td><td>${managerScores(row.scores)}</td><td>${combinedScore(row)}</td></tr>`).join('')}</tbody></table>` : emptyState('Henüz onaylı değerlendirme yok','İki amirin onaylı puanları burada %70 / %30 ağırlıkla birleştirilir.')}</div>
+          <div class="card-body"><p>Birleşik sonuç, ekip amirlerinin Yetkilendirme ekranında belirlenen güncel ağırlıklarıyla hesaplanır.</p></div>
+          <div class="table-wrap">${results.length ? `<table class="table"><thead><tr><th>Çalışan / ekip</th><th>Dönem</th><th>Amir sonuçları</th><th>Ortalama Puan</th></tr></thead><tbody>${results.slice(0, 12).map(row => `<tr><td><div class="person"><span class="person-avatar">${initials(row.employeeName)}</span>${esc(row.employeeName)}</div><small>${esc(row.professionName)}</small></td><td>${esc(row.periodName)}</td><td>${managerScores(row.scores)}</td><td>${combinedScore(row)}</td></tr>`).join('')}</tbody></table>` : emptyState('Henüz onaylı değerlendirme yok','Ekipte tanımlanan amirlerin onaylı puanları güncel ağırlıklarıyla birleştirilir.')}</div>
         </section>
         <section class="card"><div class="card-head"><h2>Şirket hedefleri</h2></div><div class="card-body">${(data.goalProgress || []).length ? data.goalProgress.map(goal => `<div class="goal-row"><div class="goal-top"><span>${esc(goal.goalName)}</span><strong>${formatNumber(goal.averageScore)} / 5</strong></div><div class="progress"><span style="width:${Math.min(100, goal.averageScore * 20)}%"></span></div></div>`).join('') : emptyState('Hedef verisi yok','KPI maddelerini şirket hedefleriyle ilişkilendirin.')}</div></section>
       </div>`;
@@ -416,9 +440,10 @@ async function dashboardPage() {
   } catch (error) { showError(error, dashboardPage); }
 }
 
-function showManagerEvaluations(manager, periodId) {
+function showManagerEvaluations(manager, periodId, initialFilters = {}) {
   const controller = new AbortController();
-  let rows = [], employeeIds = [], professionIds = [], status = '', filterController, actionController;
+  let rows = [], filterRows = [], employeeIds = initialFilters.employeeIds || [], professionIds = initialFilters.professionIds || [],
+    status = initialFilters.status || '', filterController, actionController;
   const periodName = state.periods.find(x => String(x.id) === periodId)?.name || 'Tüm dönemler';
   const heading = `${manager.managerName} · Değerlendirmeler`;
   const shell = body => {
@@ -431,21 +456,39 @@ function showManagerEvaluations(manager, periodId) {
   };
   const render = () => {
     const approved = rows.filter(x => x.status === 4);
-    const employees = [...new Map(rows.map(x => [x.employeeId, {id:x.employeeId, name:x.employeeName}])).values()].sort((a,b) => a.name.localeCompare(b.name, 'tr'));
-    const professions = [...new Map(rows.map(x => [x.professionId, {id:x.professionId, name:x.professionName}])).values()].sort((a,b) => a.name.localeCompare(b.name, 'tr'));
-    shell(`<div class="detail-grid"><div class="detail-box"><small>Görüntülenebilir kayıt</small><strong>${rows.length}</strong></div><div class="detail-box"><small>Onaylı / Diğer kayıtlar</small><strong>${approved.length} / ${rows.length-approved.length}</strong></div><div class="detail-box"><small>Onaylı kayıtların ortalaması</small><strong>${approved.length?'%'+formatNumber(approved.reduce((sum,x)=>sum+x.scorePercentage,0)/approved.length):'—'}</strong></div></div>
+    const employees = [...new Map(filterRows.map(x => [x.employeeId, {id:x.employeeId, name:x.employeeName}])).values()].sort((a,b) => a.name.localeCompare(b.name, 'tr'));
+    const professions = [...new Map(filterRows.map(x => [x.professionId, {id:x.professionId, name:x.professionName}])).values()].sort((a,b) => a.name.localeCompare(b.name, 'tr'));
+    shell(`<div class="detail-grid"><div class="detail-box"><small>Çalışan</small><strong>${new Set(rows.map(x=>x.employeeId)).size}</strong></div><div class="detail-box"><small>Onaylı</small><strong>${approved.length}</strong></div><div class="detail-box"><small>Bekleyen</small><strong>${rows.length-approved.length}</strong></div></div>
       <div class="toolbar history-filters">${selectionFilter('manager-evaluation-employee','Çalışan',employees,employeeIds,'Tüm çalışanlar')}${selectionFilter('manager-evaluation-profession','Ekip',professions,professionIds,'Tüm ekipler')}${selectionFilter('manager-evaluation-status','Durum',statusNames.map((name,id)=>({id,name})),status,'Tüm durumlar',{multiple:false})}</div><p id="manager-evaluation-count" role="status"></p><div class="table-wrap" id="manager-evaluation-list"></div>`);
     const apply = () => {
       const filtered = rows.filter(x => (!employeeIds.length || employeeIds.includes(String(x.employeeId)))
         && (!professionIds.length || professionIds.includes(String(x.professionId))) && (status==='' || String(x.status)===status));
       document.querySelector('#manager-evaluation-count').textContent = `${filtered.length} değerlendirme`;
-      document.querySelector('#manager-evaluation-list').innerHTML = filtered.length ? `<table class="table"><thead><tr><th>Çalışan / Ekip</th><th>Dönem / Tarih</th><th>Puan</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${filtered.map(row=>`<tr><td><strong>${esc(row.employeeName)}</strong><br><small>${esc(row.professionName)}</small></td><td>${esc(row.periodName)}<br><small>${formatDate(row.evaluationDate)}</small></td><td>${row.totalScore} / ${row.maximumScore}<br><small>%${formatNumber(row.scorePercentage)}</small></td><td>${statusBadge(row.status)}</td><td>${rowActionMenu(`manager-evaluation-${row.id}`, `${row.employeeName} · ${row.periodName}`, `<button type="button" class="row-action" role="menuitem" data-manager-evaluation="${row.id}">Ayrıntıyı görüntüle</button>`)}</td></tr>`).join('')}</tbody></table>` : emptyState('Değerlendirme bulunamadı', rows.length?'Çalışan, ekip veya durum filtrelerini değiştirebilirsiniz.':'Bu amir için seçili dönemde görüntüleyebileceğiniz değerlendirme bulunmuyor.');
+      document.querySelector('#manager-evaluation-list').innerHTML = filtered.length ? `<table class="table"><thead><tr><th>Çalışan / Ekip</th><th>Dönem / Tarih</th><th>Puan</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${filtered.map(row=>`<tr><td><strong>${esc(row.employeeName)}</strong><br><small>${esc(row.professionName)}</small></td><td>${esc(row.periodName)}<br><small>${formatDate(row.evaluationDate)}</small></td><td>${formatNumber(row.scorePercentage)} / 100<br><small>%${formatNumber(row.scorePercentage)}</small></td><td>${statusBadge(row.status)}</td><td>${rowActionMenu(`manager-evaluation-${row.id}`, `${row.employeeName} · ${row.periodName}`, `<button type="button" class="row-action" role="menuitem" data-manager-evaluation="${row.id}">Ayrıntıyı görüntüle</button>${row.canEdit&&row.evaluatorUserId===state.user.id?`<button type="button" class="row-action" role="menuitem" data-edit-evaluation="${row.id}">Düzenle</button>`:''}${row.canDelete?`<button type="button" class="row-action danger" role="menuitem" data-delete-evaluation="${row.id}">Sil</button>`:''}`)}</td></tr>`).join('')}</tbody></table>` : emptyState('Değerlendirme bulunamadı', rows.length?'Çalışan, ekip veya durum filtrelerini değiştirebilirsiniz.':'Bu amir için seçili dönemde görüntüleyebileceğiniz değerlendirme bulunmuyor.');
       actionController?.abort(); actionController = bindRowActionMenus(dialogContent);
       document.querySelectorAll('[data-manager-evaluation]').forEach(button=>button.onclick=async()=>{
         button.disabled = true;
         try { await showEvaluationDetail(Number(button.dataset.managerEvaluation), rows, render, controller.signal); }
         finally { button.disabled = false; }
       });
+      dialogContent.querySelectorAll('[data-edit-evaluation]').forEach(button=>button.onclick=async()=>{
+        const id = Number(button.dataset.editEvaluation);
+        const filters = {employeeIds, professionIds, status};
+        await new Promise(resolve => {
+          dialog.addEventListener('close', resolve, {once:true});
+          dialog.close();
+        });
+        if ((location.hash || '#dashboard') !== '#dashboard') return;
+        await editEvaluation(id, {
+          onSaved: async () => { if ((location.hash || '#dashboard') === '#dashboard') await dashboardPage(); },
+          onClose: () => { if ((location.hash || '#dashboard') === '#dashboard') showManagerEvaluations(manager, periodId, filters); }
+        });
+      });
+      dialogContent.querySelectorAll('[data-delete-evaluation]').forEach(button=>button.onclick=()=>deleteEvaluation(
+        Number(button.dataset.deleteEvaluation), rows, dialogContent.querySelector('#manager-evaluation-list'), async () => {
+          if (!controller.signal.aborted) render();
+          if ((location.hash || '#dashboard') === '#dashboard') await dashboardPage();
+        }));
     };
     filterController = bindSelectionFilters(() => {
       employeeIds = selectedFilterValues('manager-evaluation-employee');
@@ -461,6 +504,7 @@ function showManagerEvaluations(manager, periodId) {
       const query = new URLSearchParams({evaluatorUserId:String(manager.userId)});
       if (periodId) query.set('periodId', periodId);
       rows = await api(`/api/evaluations?${query}`, {signal:controller.signal});
+      filterRows = [...rows];
       if (!controller.signal.aborted) render();
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -487,20 +531,25 @@ async function employeesPage() {
 }
 
 function renderEmployees(rows) {
+  state.filterController?.abort();
+  state.employeeFilters ||= {employee:[], profession:[]};
+  const filters = state.employeeFilters;
   app.innerHTML = `${pageHead('Çalışanlar','Ekip üyelerini, mesleklerini ve aktiflik durumlarını yönetin.',`<button class="button primary" id="add-employee">${icon('plus')}Çalışan ekle</button>`)}${spreadsheetActions()}
-    <section class="card"><div class="card-body"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="employee-search" placeholder="Ad veya meslek ara"></div>${selectionFilter('employee-profession','Meslekler',state.professions,[],'Tüm meslekler')}</div></div>
+    <section class="card"><div class="card-body"><div class="toolbar history-filters">${selectionFilter('employee-name','Çalışanlar',rows.filter(x=>x.isActive),filters.employee,'Tüm çalışanlar')}${selectionFilter('employee-profession','Meslekler',state.professions,filters.profession,'Tüm meslekler')}</div></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Çalışan</th><th>Meslek</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="employee-rows">${employeeRows(rows)}</tbody></table></div></section>`;
   document.querySelector('#add-employee').onclick = () => employeeEditor();
   bindSpreadsheetActions('employees', () => ({ids:[...document.querySelectorAll('[data-employee]')].map(x=>Number(x.dataset.employee))}), employeesPage);
-  const apply = () => {
-    const term = document.querySelector('#employee-search').value.toLocaleLowerCase('tr-TR');
-    const professions = selectedFilterValues('employee-profession');
-    const filtered = state.employees.filter(x => (!term || `${x.fullName} ${x.professionName}`.toLocaleLowerCase('tr-TR').includes(term)) && (!professions.length || professions.includes(String(x.professionId))));
-    document.querySelector('#employee-rows').innerHTML = employeeRows(filtered);
-    bindEmployeeActions();
-  };
-  document.querySelector('#employee-search').oninput = apply;
-  state.filterController = bindSelectionFilters(apply);
+  state.filterController = bindSelectionFilters(filterEmployees);
+  filterEmployees();
+}
+
+function filterEmployees() {
+  const filters = state.employeeFilters;
+  filters.employee = selectedFilterValues('employee-name');
+  filters.profession = selectedFilterValues('employee-profession');
+  const filtered = state.employees.filter(x => (!filters.employee.length || filters.employee.includes(String(x.id)))
+    && (!filters.profession.length || filters.profession.includes(String(x.professionId))));
+  document.querySelector('#employee-rows').innerHTML = employeeRows(filtered);
   bindEmployeeActions();
 }
 
@@ -511,7 +560,7 @@ function employeeRows(rows) {
 
 function bindEmployeeActions() {
   bindPageActionMenus();
-  bindManagementActions('employees', state.employees, () => document.querySelector('#employee-search').dispatchEvent(new Event('input')));
+  bindManagementActions('employees', state.employees, filterEmployees);
   document.querySelectorAll('[data-employee]').forEach(button => button.onclick = () => employeeEditor(state.employees.find(x => x.id === Number(button.dataset.employee))));
 }
 
@@ -590,23 +639,42 @@ function goalEditor(row = {}) {
 async function kpisPage() {
   loading();
   try {
-    const [kpis, professions] = await Promise.all([api('/api/kpis'), api('/api/professions')]);
-    state.kpis = kpis; state.professions = professions;
+    const [kpis, professions, goals] = await Promise.all([api('/api/kpis'), api('/api/professions'), api('/api/goals')]);
+    state.kpis = kpis; state.professions = professions; state.kpiGoals = goals;
     renderKpis(kpis);
   } catch (error) { showError(error, kpisPage); }
 }
 
 function renderKpis(rows) {
-  app.innerHTML = `${pageHead('KPI Yönetimi','Ortak ve mesleki ölçütleri, hedefleri ve ağırlıkları yönetin.',`<button class="button primary" id="add-kpi">${icon('plus')}KPI ekle</button>`)}${spreadsheetActions()}<section class="card"><div class="card-body"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="kpi-search" placeholder="KPI veya kategori ara"></div>${selectionFilter('kpi-profession','Meslekler',state.professions,[],'Tüm meslekler')}</div></div><div class="table-wrap"><table class="table"><thead><tr><th>KPI</th><th>Kapsam</th><th>Ölçüm</th><th>Ağırlık</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="kpi-rows">${kpiRows(rows)}</tbody></table></div></section>`;
+  state.filterController?.abort();
+  state.kpiFilters ||= {kpi:[], category:[], profession:[]};
+  const filters = state.kpiFilters;
+  const active = rows.filter(x=>x.isActive);
+  const categories = [...new Set(active.map(x=>x.category || ''))].map(category=>({id:category, name:category || 'Kategorisiz'}))
+    .sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  app.innerHTML = `${pageHead('KPI Yönetimi','Ortak ve mesleki değerlendirme ölçütlerini yönetin.',`<button class="button primary" id="add-kpi">${icon('plus')}KPI ekle</button>`)}${spreadsheetActions()}<section class="card"><div class="card-body"><div class="toolbar history-filters">${selectionFilter('kpi-title','KPI ölçütleri',active.map(x=>({id:x.id,name:x.title})),filters.kpi,'Tüm KPI ölçütleri')}${selectionFilter('kpi-category','Kategoriler',categories,filters.category,'Tüm kategoriler')}${selectionFilter('kpi-profession','Meslekler',state.professions,filters.profession,'Tüm meslekler')}</div></div><div class="table-wrap"><table class="table"><thead><tr><th>KPI</th><th>Kapsam</th><th>Durum</th><th>İşlem</th></tr></thead><tbody id="kpi-rows">${kpiRows(rows)}</tbody></table></div></section>`;
   document.querySelector('#add-kpi').onclick = () => kpiEditor();
   bindSpreadsheetActions('kpis', () => ({ids:[...document.querySelectorAll('[data-kpi]')].map(x=>Number(x.dataset.kpi))}), kpisPage);
-  const apply = () => { const term = document.querySelector('#kpi-search').value.toLocaleLowerCase('tr-TR'); const professions = selectedFilterValues('kpi-profession'); const filtered = state.kpis.filter(x => (!term || `${x.title} ${x.category || ''}`.toLocaleLowerCase('tr-TR').includes(term)) && (!professions.length || professions.some(id=>String(x.professionId)===id || x.professions?.some(p=>String(p.id)===id)))); document.querySelector('#kpi-rows').innerHTML = kpiRows(filtered); bindKpiActions(); };
-  document.querySelector('#kpi-search').oninput = apply; state.filterController = bindSelectionFilters(apply); bindKpiActions();
+  state.filterController = bindSelectionFilters(filterKpis);
+  filterKpis();
+}
+
+function filterKpis() {
+  const filters = state.kpiFilters;
+  filters.kpi = selectedFilterValues('kpi-title');
+  filters.category = selectedFilterValues('kpi-category');
+  filters.profession = selectedFilterValues('kpi-profession');
+  const filtered = state.kpis.filter(x => (!filters.kpi.length || filters.kpi.includes(String(x.id)))
+    && (!filters.category.length || filters.category.includes(x.category || ''))
+    && (!filters.profession.length || x.isCommon || filters.profession.some(id=>String(x.professionId)===id || x.professions?.some(p=>String(p.id)===id))));
+  document.querySelector('#kpi-rows').innerHTML = kpiRows(filtered);
+  bindKpiActions();
 }
 
 function kpiRows(rows) {
   rows = rows.filter(row => row.isActive);
-  return rows.map(row => `<tr><td><strong>${esc(row.title)}</strong><br><small>${esc(row.category || 'Kategorisiz')}</small></td><td>${row.isCommon ? '<span class="badge info">Herkes</span>' : esc(row.professions?.length ? row.professions.map(x => x.name).join(', ') : row.professionName || '—')}</td><td>${esc(row.measurementName)}</td><td>${formatNumber(row.weightPercent)}%</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td>${rowActionMenu(`kpi-${row.id}`, row.title, `<button type="button" class="row-action" role="menuitem" data-kpi="${row.id}">Düzenle</button><button type="button" class="row-action" role="menuitem" data-deactivate-kpi="${row.id}" ${row.isActive ? '' : 'disabled'}>Pasife al</button><button type="button" class="row-action danger" role="menuitem" data-delete-kpi="${row.id}">Sil</button>`)}</td></tr>`).join('');
+  if (!rows.length) return `<tr><td colspan="4">${emptyState('KPI bulunamadı','Filtreleri değiştirebilirsiniz.')}</td></tr>`;
+  return rows.map(row => `<tr><td><strong>${esc(row.title)}</strong><br><small>${esc(row.category || 'Kategorisiz')}</small>${row.companyGoalName?`<br><small>Şirket hedefi: ${esc(row.companyGoalName)}</small>`:''}</td><td>${row.isCommon ? '<span class="badge info">Herkes</span>' : esc(row.professions?.length ? row.professions.map(x => x.name).join(', ') : row.professionName || '—')}</td><td><span class="badge ${row.isActive ? 'active' : 'inactive'}">${row.isActive ? 'Aktif' : 'Pasif'}</span></td><td>${rowActionMenu(`kpi-${row.id}`, row.title, `<button type="button" class="row-action" role="menuitem" data-kpi="${row.id}">Düzenle</button><button type="button" class="row-action" role="menuitem" data-deactivate-kpi="${row.id}" ${row.isActive ? '' : 'disabled'}>Pasife al</button><button type="button" class="row-action danger" role="menuitem" data-delete-kpi="${row.id}">Sil</button>`)}</td></tr>`).join('');
 }
 
 function bindKpiActions() {
@@ -628,23 +696,26 @@ async function changeKpi(button, permanent) {
     await api(permanent ? `/api/kpis/${id}` : `/api/kpis/${id}/deactivate`, {method:permanent?'DELETE':'POST'});
     if (document.querySelector('#kpi-rows') === table) {
       state.kpis = permanent ? state.kpis.filter(x => x.id !== id) : state.kpis.map(x => x.id === id ? {...x, isActive:false} : x);
-      document.querySelector('#kpi-search').dispatchEvent(new Event('input'));
+      filterKpis();
     }
     toast(permanent ? 'KPI kalıcı olarak silindi.' : 'KPI pasife alındı.');
   } catch (error) { toast(error.message, 'error'); }
   finally { actions.querySelectorAll('button').forEach(x => x.disabled = x.hasAttribute('data-deactivate-kpi') && !row.isActive); }
 }
 
-function kpiEditor(row = {}, {onSaved = kpisPage, professions = state.professions} = {}) {
+function kpiEditor(row = {}, {onSaved = kpisPage, professions = state.professions, goals = state.kpiGoals || []} = {}) {
+  const goalOptions = goals.filter(goal => goal.isActive || goal.id === row.companyGoalId)
+    .map(goal => ({id:goal.id, name:`${goal.name} · ${goal.periodName || 'Tüm dönemler'}${goal.isActive?'':' (Pasif)'}`}));
   openDialog(row.id ? 'KPI ölçütünü düzenle' : 'Yeni KPI ölçütü', `<div class="form-grid">
-    <div class="field full"><label>KPI başlığı</label><input class="input" name="title" value="${esc(row.title)}" required maxlength="1000"></div>
-    <div class="field full"><label>Açıklama</label><textarea class="textarea" name="description">${esc(row.description)}</textarea></div>
+    <div class="field full"><label for="kpi-title-field">KPI başlığı</label><textarea class="textarea kpi-editor-text" data-growing-note id="kpi-title-field" name="title" rows="3" required maxlength="1000">${esc(row.title)}</textarea></div>
+    <div class="field full"><label for="kpi-description-field">Açıklama</label><textarea class="textarea kpi-editor-text" data-growing-note id="kpi-description-field" name="description" rows="3" maxlength="2000">${esc(row.description)}</textarea></div>
+    <div class="field full"><label for="kpi-goal-field">Bağlı olduğu şirket hedefi (isteğe bağlı)</label><select class="filter-select" id="kpi-goal-field" name="companyGoalId">${optionList(goalOptions, row.companyGoalId, 'Şirket hedefi seçilmedi')}</select><small>Bu KPI sonucunun katkı sağlayacağı şirket hedefini seçin; boş bırakabilirsiniz.</small></div>
     <label class="check-row"><input type="checkbox" name="isCommon" id="kpi-common" ${row.isCommon ? 'checked' : ''}> Herkes (tüm ekipler)</label>
     <div class="field"><label>Ekipler (meslek grupları)</label><select class="filter-select multi-select" name="professionIds" id="kpi-profession-field" multiple>${professions.map(x => `<option value="${x.id}" ${(row.professions?.length ? row.professions.some(p => p.id === x.id) : row.professionId === x.id) ? 'selected' : ''}>${esc(x.name)}${x.isActive ? '' : ' (Pasif)'}</option>`).join('')}</select><small>Bir veya birden fazla meslek grubu seçin; tüm ekipler için Herkes seçeneğini işaretleyin.</small></div>
     <div class="field"><label>Sıra</label><input class="input" type="number" min="1" name="displayOrder" value="${row.displayOrder || 1}" required></div>
     <label class="check-row"><input type="checkbox" name="isActive" ${row.isActive !== false ? 'checked':''}> Aktif KPI</label></div>`, async form => {
     const isCommon = form.get('isCommon') === 'on';
-    const saved = await api('/api/kpis', { method:'POST', body:JSON.stringify({ id:row.id || null, title:form.get('title'), description:form.get('description'), professionId:null, professionIds:isCommon ? [] : form.getAll('professionIds').map(Number), isCommon, displayOrder:Number(form.get('displayOrder')), isActive:form.get('isActive') === 'on', category:row.category ?? null, companyGoalId:row.companyGoalId ?? null, measurementType:row.measurementType ?? 0, unit:row.unit ?? null, targetValue:row.targetValue ?? null, targetDirection:row.targetDirection ?? 0, weightPercent:row.weightPercent ?? 0, dataSource:row.dataSource ?? null, reviewFrequency:row.reviewFrequency ?? 2, validFrom:row.validFrom || null, validTo:row.validTo || null, isSpecific:row.isSpecific || false, isMeasurable:row.isMeasurable || false, isAchievable:row.isAchievable || false, isRelevant:row.isRelevant || false, isTimeBound:row.isTimeBound || false }) });
+    const saved = await api('/api/kpis', { method:'POST', body:JSON.stringify({ id:row.id || null, title:form.get('title'), description:form.get('description'), professionId:null, professionIds:isCommon ? [] : form.getAll('professionIds').map(Number), isCommon, displayOrder:Number(form.get('displayOrder')), isActive:form.get('isActive') === 'on', category:row.category ?? null, companyGoalId:form.get('companyGoalId') ? Number(form.get('companyGoalId')) : null, measurementType:row.measurementType ?? 0, unit:row.unit ?? null, targetValue:row.targetValue ?? null, targetDirection:row.targetDirection ?? 0, weightPercent:row.weightPercent ?? 0, dataSource:row.dataSource ?? null, reviewFrequency:row.reviewFrequency ?? 2, validFrom:row.validFrom || null, validTo:row.validTo || null, isSpecific:row.isSpecific || false, isMeasurable:row.isMeasurable || false, isAchievable:row.isAchievable || false, isRelevant:row.isRelevant || false, isTimeBound:row.isTimeBound || false }) });
     toast(row.id ? 'KPI güncellendi.' : 'KPI eklendi.'); await onSaved(saved);
   });
   const common = document.querySelector('#kpi-common'); const profession = document.querySelector('#kpi-profession-field');
@@ -684,11 +755,11 @@ async function evaluationKpiEditor(button) {
   button.disabled = true;
   const card = document.querySelector('#criteria-card');
   try {
-    const professions = await api('/api/professions');
+    const [professions, goals] = await Promise.all([api('/api/professions'), api('/api/goals')]);
     if (document.querySelector('#criteria-card') !== card) return;
     const employee = state.employees.find(x => x.id === Number(document.querySelector('#eval-employee').value));
     const professionId = employee?.professionId || Number(selectedFilterValues('eval-profession')[0]) || null;
-    kpiEditor({professionId}, {professions, onSaved: async saved => {
+    kpiEditor({professionId}, {professions, goals, onSaved: async saved => {
       if (document.querySelector('#criteria-card') !== card) return;
       if (state.evaluationEdit) {
         toast('Yeni KPI, yeni değerlendirmelerde kullanılacak. Kayıtlı değerlendirmenin soruları korunur.');
@@ -740,7 +811,7 @@ async function loadEvaluationCriteria() {
     const existing = await api(`/api/evaluations/resume?employeeId=${employeeId}&periodId=${periodId}`, { signal });
     if (signal.aborted) return;
     if (existing && !existing.canEdit) {
-      notice.textContent = 'Bu çalışan ve dönem için size ait onaylanmış değerlendirme var. Ayrıntıları Değerlendirmeler ekranından görebilirsiniz. Diğer amirin değerlendirmesi ayrıdır.';
+      notice.textContent = 'Bu çalışan ve dönem için size ait onaylanmış değerlendirme var. Ayrıntıları Değerlendirmeler ekranından görebilir veya Düzenle ile taslağa alabilirsiniz. Diğer amirin değerlendirmesi ayrıdır.';
       return;
     }
     if (existing) {
@@ -791,8 +862,8 @@ function metricScore(actual,target,direction) {
 }
 
 function evaluationSummary() {
-  const scored = state.evaluationItems.filter(x => x.score != null); const total = scored.reduce((sum,x)=>sum+x.score,0); const weight = scored.reduce((sum,x)=>sum+(x.weightPercent||0),0); const average = scored.length ? total/scored.length : 0; const weighted = weight ? scored.reduce((sum,x)=>sum+x.score*(x.weightPercent||0),0)/weight : average; const complete = state.evaluationItems.length && scored.length === state.evaluationItems.length;
-  return `<div class="score-ring" style="--value:${Math.min(100,weighted*20)}%"><div><strong>%${formatNumber(weighted*20)}</strong><small>normalize başarı</small></div></div><div class="summary-line"><span>Puanlanan</span><strong>${scored.length} / ${state.evaluationItems.length}</strong></div><div class="summary-line"><span>Toplam puan</span><strong>${total} / ${state.evaluationItems.length*5}</strong></div><div class="summary-line"><span>Ağırlıklı ortalama</span><strong>${formatNumber(weighted)} / 5</strong></div><div class="field" style="margin-top:14px"><label>Genel not</label><textarea class="textarea" id="general-note" placeholder="Değerlendirme notu" maxlength="2000"></textarea></div><div class="actions" style="margin-top:16px"><button class="button secondary" id="save-draft" ${state.evaluationReady&&state.evaluationItems.length&&!state.savingEvaluation?'':'disabled'}>Geçici Kaydet</button><button class="button primary" id="save-evaluation" ${state.evaluationReady&&complete&&hasPermission(2)&&!state.savingEvaluation?'':'disabled'}>${icon('check')}Kalıcı Kaydet</button>${state.evaluationEdit?'<button class="button secondary" id="reload-evaluation">Taslağı yeniden yükle</button>':''}<small>Geçici kayıt daha sonra tamamlanabilir. Kalıcı kayıt onaylanır ve değiştirilemez.</small></div>`;
+  const scored = state.evaluationItems.filter(x => x.score != null); const total = scored.reduce((sum,x)=>sum+x.score,0); const weight = state.evaluationItems.reduce((sum,x)=>sum+(x.weightPercent||0),0); const average = state.evaluationItems.length ? total/state.evaluationItems.length : 0; const weighted = weight ? scored.reduce((sum,x)=>sum+x.score*(x.weightPercent||0),0)/weight : average; const complete = state.evaluationItems.length && scored.length === state.evaluationItems.length;
+  return `<div class="score-ring" style="--value:${Math.min(100,weighted*20)}%"><div><strong>%${formatNumber(weighted*20)}</strong><small>normalize başarı</small></div></div><div class="summary-line"><span>Puanlanan</span><strong>${scored.length} / ${state.evaluationItems.length}</strong></div><div class="summary-line"><span>Toplam puan</span><strong>${formatNumber(weighted*20)} / 100</strong></div><div class="summary-line"><span>Soru başına azami puan</span><strong>${formatNumber(state.evaluationItems.length ? 100/state.evaluationItems.length : 0)}</strong></div><div class="field" style="margin-top:14px"><label>Genel not</label><textarea class="textarea" id="general-note" placeholder="Değerlendirme notu" maxlength="2000"></textarea></div><div class="actions" style="margin-top:16px"><button class="button secondary" id="save-draft" ${state.evaluationReady&&state.evaluationItems.length&&!state.savingEvaluation?'':'disabled'}>Geçici Kaydet</button><button class="button primary" id="save-evaluation" ${state.evaluationReady&&complete&&hasPermission(2)&&!state.savingEvaluation?'':'disabled'}>${icon('check')}Kalıcı Kaydet</button>${state.evaluationEdit?'<button class="button secondary" id="reload-evaluation">Taslağı yeniden yükle</button>':''}<small>Geçici kayıt daha sonra tamamlanabilir. Kalıcı kayıt onaylanır. Yalnızca değerlendiren kişi düzenleyebilir; değişiklikler yeniden onay gerektirir.</small></div>`;
 }
 
 function updateEvaluationSummary() {
@@ -808,7 +879,7 @@ async function saveEvaluation(status) {
   const periodId = Number(document.querySelector('#eval-period').value);
   if (!employeeId || !periodId) { toast('Çalışan ve dönem seçmelisiniz.','error'); return; }
   if (status === 4 && (!hasPermission(2) || state.evaluationItems.some(x => x.score == null))) { toast('Kalıcı kayıt için tüm soruları puanlamalı ve onaylama yetkisine sahip olmalısınız.','error'); return; }
-  if (status === 4 && !confirm('Kalıcı kayıt onaylanacak ve değiştirilemeyecek. Devam edilsin mi?')) return;
+  if (status === 4 && !confirm('Kalıcı kayıt onaylanacak. Devam edilsin mi?')) return;
   state.savingEvaluation = true;
   document.querySelector('.setup-card').inert = true;
   document.querySelector('#criteria-card').inert = true;
@@ -834,28 +905,45 @@ async function saveEvaluation(status) {
   }
 }
 
-async function editEvaluation(id) {
+async function editEvaluation(id, {onSaved = historyPage, onClose = null} = {}) {
+  let opened = false;
   try {
     const edit = await api(`/api/evaluations/${id}/edit`);
+    const wasApproved = edit.status === 4;
     let saveStatus = 0;
-    openDialog('Değerlendirmeyi düzenle', `<div class="form-grid">${edit.items.map(x=>`<div class="field full"><label>${esc(x.kpiTitle)}</label>${x.measurementType===0?`<select class="filter-select" name="score-${x.detailId}"><option value="0">Henüz puanlanmadı</option>${[1,2,3,4,5].map(score=>`<option value="${score}" ${score===x.score?'selected':''}>${score}</option>`).join('')}</select>`:`<input class="input" type="number" step="0.01" name="actual-${x.detailId}" value="${x.actualValue??''}" placeholder="Gerçekleşen (${esc(x.unit||'değer')})"><small>Hedef: ${esc(x.targetValue)} · Puan otomatik hesaplanır.</small>`}<textarea class="textarea evaluation-note" data-growing-note name="note-${x.detailId}" rows="3" aria-label="${esc(x.kpiTitle)} · Kısa not" placeholder="Kısa not" maxlength="2000">${esc(x.note)}</textarea></div>`).join('')}<div class="field full"><label>Genel not</label><textarea class="textarea" name="generalNote" maxlength="2000">${esc(edit.generalNote)}</textarea></div></div>`, async form => {
+    openDialog('Değerlendirmeyi düzenle', `<div class="form-grid">${wasApproved?'<p class="field full" role="status">Bu değerlendirme onaylıdır. Değişiklikler taslağa kaydedilir ve yeniden onay gerekir.</p>':''}${edit.items.map(x=>`<div class="field full"><span class="filter-label" id="edit-kpi-${x.detailId}">${esc(x.kpiTitle)}</span>${x.measurementType===0?`<div class="score-buttons" role="group" aria-labelledby="edit-kpi-${x.detailId}"><input type="hidden" name="score-${x.detailId}" value="${x.score||0}">${[1,2,3,4,5].map(score=>`<button type="button" class="score-button ${score===x.score?'selected':''}" data-edit-score="${score}" aria-pressed="${score===x.score}" aria-label="${score} puan${score===x.score?' · Seçimi kaldır':''}">${score}</button>`).join('')}</div>`:`<input class="input" type="number" step="0.01" name="actual-${x.detailId}" aria-labelledby="edit-kpi-${x.detailId}" value="${x.actualValue??''}" placeholder="Gerçekleşen (${esc(x.unit||'değer')})"><small>Hedef: ${esc(x.targetValue)} · Puan otomatik hesaplanır.</small>`}<textarea class="textarea evaluation-note" data-growing-note name="note-${x.detailId}" rows="3" aria-label="${esc(x.kpiTitle)} · Kısa not" placeholder="Kısa not" maxlength="2000">${esc(x.note)}</textarea></div>`).join('')}<div class="field full"><label>Genel not</label><textarea class="textarea" name="generalNote" maxlength="2000">${esc(edit.generalNote)}</textarea></div></div>`, async form => {
       const items = edit.items.map(x => {
         const raw = form.get(`actual-${x.detailId}`);
         const actualValue = raw === '' || raw == null ? null : Number(raw);
         return {detailId:x.detailId, score:x.measurementType===0?Number(form.get(`score-${x.detailId}`)):metricScore(actualValue,x.targetValue,x.targetDirection)??0, actualValue, note:form.get(`note-${x.detailId}`)};
       });
       if (saveStatus === 4 && items.some(x=>x.score===0)) throw new Error('Kalıcı kayıt için tüm soruları puanlamalısınız.');
-      if (saveStatus === 4 && !confirm('Kalıcı kayıt onaylanacak ve değiştirilemeyecek. Devam edilsin mi?')) throw new Error('Kalıcı kayıt iptal edildi.');
+      if (saveStatus === 4 && !confirm('Kalıcı kayıt onaylanacak. Devam edilsin mi?')) throw new Error('Kalıcı kayıt iptal edildi.');
       await api(`/api/evaluations/${id}`, {method:'PUT',body:JSON.stringify({id,generalNote:form.get('generalNote'),items,status:saveStatus,expectedUpdatedAt:edit.updatedAt,managerFeedback:edit.managerFeedback,employeeFeedback:edit.employeeFeedback,developmentAction:edit.developmentAction,followUpDate:edit.followUpDate})});
-      toast(saveStatus===0?'Geçici kayıt güncellendi.':'Değerlendirme kalıcı olarak kaydedildi ve onaylandı.');
-      await historyPage();
+      if (wasApproved) alert('Değerlendirme tekrar taslağa döndü. Düzenleme sonrasında yeniden onaylanması gerekir.');
+      else toast(saveStatus===0?'Geçici kayıt güncellendi.':'Değerlendirme kalıcı olarak kaydedildi ve onaylandı.');
+      await onSaved();
     }, true);
+    opened = true;
+    dialogContent.querySelectorAll('[data-edit-score]').forEach(button => button.onclick = () => {
+      const group = button.closest('.score-buttons');
+      const input = group.querySelector('input[type="hidden"]');
+      const score = Number(button.dataset.editScore);
+      input.value = Number(input.value) === score ? '0' : String(score);
+      group.querySelectorAll('[data-edit-score]').forEach(choice => {
+        const selected = Number(choice.dataset.editScore) === Number(input.value);
+        choice.classList.toggle('selected', selected);
+        choice.setAttribute('aria-pressed', String(selected));
+        choice.setAttribute('aria-label', `${choice.dataset.editScore} puan${selected?' · Seçimi kaldır':''}`);
+      });
+    });
+    if (onClose) dialog.addEventListener('close', () => queueMicrotask(onClose), {once:true});
     const footer = dialogContent.querySelector('.dialog-foot');
-    footer.innerHTML = `<button type="button" class="button secondary" id="cancel-evaluation-edit">Vazgeç</button><button type="submit" class="button secondary" id="update-draft">Geçici Kaydet</button>${hasPermission(2)?'<button type="submit" class="button primary" id="finalize-evaluation">Kalıcı Kaydet</button>':''}`;
+    footer.innerHTML = `<button type="button" class="button secondary" id="cancel-evaluation-edit">Vazgeç</button><button type="submit" class="button ${wasApproved?'primary':'secondary'}" id="update-draft">${wasApproved?'Taslağa Döndür ve Kaydet':'Geçici Kaydet'}</button>${!wasApproved&&hasPermission(2)?'<button type="submit" class="button primary" id="finalize-evaluation">Kalıcı Kaydet</button>':''}`;
     footer.querySelector('#cancel-evaluation-edit').onclick = () => dialog.close();
     footer.querySelector('#update-draft').onclick = () => { saveStatus = 0; };
-    if (hasPermission(2)) footer.querySelector('#finalize-evaluation').onclick = () => { saveStatus = 4; };
-  } catch(error) { toast(error.message,'error'); }
+    if (!wasApproved && hasPermission(2)) footer.querySelector('#finalize-evaluation').onclick = () => { saveStatus = 4; };
+  } catch(error) { toast(error.message,'error'); if (!opened && onClose) onClose(); }
 }
 
 async function historyPage() {
@@ -881,23 +969,24 @@ function renderHistory(rows) {
   state.filterController = bindSelectionFilters(apply); apply();
 }
 
-function historyRows(rows){return rows.length?rows.map(row=>`<tr><td><div class="person"><span class="person-avatar">${initials(row.employeeName)}</span><div>${esc(row.employeeName)}<br><small>${esc(row.professionName)}</small></div></div></td><td>${esc(row.evaluatorName||'Sistem')}</td><td>${esc(row.periodName)}</td><td><span class="score ${row.scorePercentage>=80?'good':row.scorePercentage>=60?'mid':'low'}">${row.totalScore} / ${row.maximumScore}<br><small>%${formatNumber(row.scorePercentage)}</small></span></td><td>${statusBadge(row.status)}</td><td>${rowActionMenu(`history-${row.id}`, `${row.employeeName} · ${row.periodName}`, `<button type="button" class="row-action" role="menuitem" data-history="${row.id}">Ayrıntıyı görüntüle</button>${row.canEdit?`<button type="button" class="row-action" role="menuitem" data-edit-evaluation="${row.id}">Düzenle</button>`:''}${row.canApprove?`<button type="button" class="row-action" role="menuitem" data-approve="${row.id}">Onayla</button>`:''}${row.canDelete?`<button type="button" class="row-action danger" role="menuitem" data-delete-evaluation="${row.id}">Sil</button>`:''}`)}</td></tr>`).join(''):`<tr><td colspan="6">${emptyState('Kayıt bulunamadı','Filtreleri değiştirebilirsiniz.')}</td></tr>`;}
+function historyRows(rows){return rows.length?rows.map(row=>`<tr><td><div class="person"><span class="person-avatar">${initials(row.employeeName)}</span><div>${esc(row.employeeName)}<br><small>${esc(row.professionName)}</small></div></div></td><td>${esc(row.evaluatorName||'Sistem')}</td><td>${esc(row.periodName)}</td><td><span class="score ${row.scorePercentage>=80?'good':row.scorePercentage>=60?'mid':'low'}">${formatNumber(row.scorePercentage)} / 100<br><small>%${formatNumber(row.scorePercentage)}</small></span></td><td>${statusBadge(row.status)}</td><td>${rowActionMenu(`history-${row.id}`, `${row.employeeName} · ${row.periodName}`, `<button type="button" class="row-action" role="menuitem" data-history="${row.id}">Ayrıntıyı görüntüle</button>${row.canEdit?`<button type="button" class="row-action" role="menuitem" data-edit-evaluation="${row.id}">Düzenle</button>`:''}${row.canApprove?`<button type="button" class="row-action" role="menuitem" data-approve="${row.id}">Kalıcı Kaydet</button>`:''}${row.canDelete?`<button type="button" class="row-action danger" role="menuitem" data-delete-evaluation="${row.id}">Sil</button>`:''}`)}</td></tr>`).join(''):`<tr><td colspan="6">${emptyState('Kayıt bulunamadı','Filtreleri değiştirebilirsiniz.')}</td></tr>`;}
 function bindHistoryActions(){bindPageActionMenus();document.querySelectorAll('[data-delete-evaluation]').forEach(button=>button.onclick=()=>deleteEvaluation(Number(button.dataset.deleteEvaluation)));document.querySelectorAll('[data-edit-evaluation]').forEach(button=>button.onclick=()=>editEvaluation(Number(button.dataset.editEvaluation)));document.querySelectorAll('[data-history]').forEach(button=>button.onclick=()=>showEvaluationDetail(Number(button.dataset.history)));document.querySelectorAll('[data-approve]').forEach(button=>button.onclick=()=>approveEvaluation(Number(button.dataset.approve)));}
-async function deleteEvaluation(id) {
-  const row = state.history.find(x => x.id === id);
+async function deleteEvaluation(id, rows = state.history, table = document.querySelector('#history-rows'), onDeleted = null) {
+  const row = rows.find(x => x.id === id);
   if (!row?.canDelete || !confirm(`“${row.employeeName} · ${row.periodName}” değerlendirmesi, KPI puanları ve çalışan yanıtları kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`)) return;
-  const table = document.querySelector('#history-rows');
   const buttons = [...table.querySelector(`[data-delete-evaluation="${id}"]`).closest('.row-actions').querySelectorAll('button')];
   buttons.forEach(button => button.disabled = true);
   try {
     await api(`/api/evaluations/${id}`, {method:'DELETE'});
-    if (table.isConnected) { state.history.splice(state.history.indexOf(row), 1); renderHistory(state.history); }
+    rows.splice(rows.indexOf(row), 1);
+    if (onDeleted) await onDeleted();
+    else if (table.isConnected) renderHistory(rows);
     toast('Değerlendirme kalıcı olarak silindi.');
   } catch (error) { toast(error.message, 'error'); }
   finally { buttons.forEach(button => button.disabled = false); }
 }
 
-async function approveEvaluation(id){try{await api(`/api/evaluations/${id}/approve`,{method:'POST'});toast('Değerlendirme onaylandı ve resmî sonuçlara eklendi.');await historyPage();}catch(error){toast(error.message,'error');}}
+async function approveEvaluation(id){if(!confirm('Değerlendirme kalıcı olarak kaydedilip onaylanacak. Devam edilsin mi?'))return;try{await api(`/api/evaluations/${id}/approve`,{method:'POST'});toast('Değerlendirme onaylandı ve resmî sonuçlara eklendi.');await historyPage();}catch(error){toast(error.message,'error');}}
 
 async function showEvaluationDetail(id, rows = state.history, onBack = null, signal = undefined) {
   try {
@@ -906,7 +995,7 @@ async function showEvaluationDetail(id, rows = state.history, onBack = null, sig
     if (signal?.aborted) return;
     dialog.classList.add('wide');
     dialog.setAttribute('aria-labelledby', 'evaluation-dialog-title');
-    dialogContent.innerHTML = `<div class="dialog-head"><h2 id="evaluation-dialog-title" tabindex="-1">${esc(row.employeeName)} · Değerlendirme ayrıntısı</h2><button type="button" class="icon-button" data-close aria-label="Kapat">${icon('close')}</button></div><div class="dialog-body"><p class="manager-dialog-context">Değerlendiren: ${esc(row.evaluatorName||'Sistem')} · ${formatDate(row.evaluationDate)} · ${statusBadge(row.status)}</p><div class="detail-grid"><div class="detail-box"><small>Çalışan</small><strong>${esc(row.employeeName)}</strong></div><div class="detail-box"><small>Dönem</small><strong>${esc(row.periodName)}</strong></div><div class="detail-box"><small>Ağırlıklı puan</small><strong>${formatNumber(row.weightedScore)} / 5</strong></div></div><div class="table-wrap"><table class="table"><thead><tr><th>KPI</th><th>Tür</th><th>Puan</th><th>Not</th></tr></thead><tbody>${details.map(x=>`<tr><td><strong>${esc(x.kpiTitle)}</strong></td><td>${x.isCommon?'Ortak':'Mesleki'}</td><td><span class="score">${x.score || '—'}</span></td><td class="evaluation-note-text">${esc(x.note||'—')}</td></tr>`).join('')}</tbody></table></div>${row.generalNote?`<div class="field" style="margin-top:18px"><label>Genel not</label><div class="detail-box">${esc(row.generalNote)}</div></div>`:''}</div><div class="dialog-foot">${onBack?'<button type="button" class="button secondary" id="back-to-manager">Amirin değerlendirmelerine dön</button>':''}<button type="button" class="button secondary" data-close>Kapat</button></div>`;
+    dialogContent.innerHTML = `<div class="dialog-head"><h2 id="evaluation-dialog-title" tabindex="-1">${esc(row.employeeName)} · Değerlendirme ayrıntısı</h2><button type="button" class="icon-button" data-close aria-label="Kapat">${icon('close')}</button></div><div class="dialog-body"><p class="manager-dialog-context">Değerlendiren: ${esc(row.evaluatorName||'Sistem')} · ${formatDate(row.evaluationDate)} · ${statusBadge(row.status)}</p><div class="detail-grid"><div class="detail-box"><small>Çalışan</small><strong>${esc(row.employeeName)}</strong></div><div class="detail-box"><small>Dönem</small><strong>${esc(row.periodName)}</strong></div><div class="detail-box"><small>Puan</small><strong>${formatNumber(row.scorePercentage)} / 100</strong></div></div><div class="table-wrap"><table class="table"><thead><tr><th>KPI</th><th>Tür</th><th>Puan</th><th>Not</th></tr></thead><tbody>${details.map(x=>`<tr><td><strong>${esc(x.kpiTitle)}</strong></td><td>${x.isCommon?'Ortak':'Mesleki'}</td><td><span class="score">${x.score || '—'}</span></td><td class="evaluation-note-text">${esc(x.note||'—')}</td></tr>`).join('')}</tbody></table></div>${row.generalNote?`<div class="field" style="margin-top:18px"><label>Genel not</label><div class="detail-box">${esc(row.generalNote)}</div></div>`:''}</div><div class="dialog-foot">${onBack?'<button type="button" class="button secondary" id="back-to-manager">Amirin değerlendirmelerine dön</button>':''}<button type="button" class="button secondary" data-close>Kapat</button></div>`;
     dialogContent.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>dialog.close());
     const responseSection = document.createElement('section');
     responseSection.innerHTML = `<h3>Çalışan görüşü</h3><div id="employee-response-list">${employeeResponseList(responses)}</div>${hasPermission(14)&&state.user.employeeId===row.employeeId&&row.status===4?'<form id="employee-response-form"><div class="field"><label>Yanıtınız</label><select class="filter-select" name="decision"><option value="2">Görüş bildir</option><option value="0">Kabul ediyorum</option></select></div><div class="field"><label>Açıklama</label><textarea class="textarea" name="comment" maxlength="2000"></textarea></div><button class="button primary" type="submit">Yanıtı kaydet</button><small>Yanıt geçmişe eklenir; onaylı puanlar değişmez.</small></form>':''}`;
@@ -940,11 +1029,11 @@ function employeeResponseList(rows) {
 }
 
 function managerScores(scores) {
-  return scores.map(score => `<div>${score.managerLevel ? `${score.managerLevel}. amir · %${score.managerLevel === 1 ? 70 : 30} · ` : ''}${esc(score.evaluatorName)}: <strong>%${formatNumber(score.percentage)}</strong>${score.managerLevel ? '' : '<br><small>Amir sırası belirlenmemiş</small>'}</div>`).join('');
+  return scores.map(score => `<div>${score.managerLevel ? `${score.managerLevel}. amir · %${formatNumber(score.weightPercent)} · ` : ''}${esc(score.evaluatorName)}: <strong>%${formatNumber(score.percentage)}</strong>${score.managerLevel ? '' : '<br><small>Güncel ağırlıklandırmaya dahil değil</small>'}</div>`).join('');
 }
 
 function combinedScore(row) {
-  return row.combinedPercentage == null ? `<small>${esc(row.combinedStatus || 'İki amirin onaylı değerlendirmeleri bekleniyor')}</small>`
+  return row.combinedPercentage == null ? `<small>${esc(row.combinedStatus || 'Atanmış amirlerin onaylı değerlendirmeleri bekleniyor')}</small>`
     : `<strong class="score ${row.combinedPercentage >= 80 ? 'good' : row.combinedPercentage >= 60 ? 'mid' : 'low'}">%${formatNumber(row.combinedPercentage)}</strong>`;
 }
 
@@ -952,10 +1041,11 @@ async function calibrationPage() {
   loading();
   try {
     const rows=await api('/api/workflow/calibration');
-    app.innerHTML=`${pageHead('Onaylı Amir Sonuçları','Birleşik başarı = 1. amir × %70 + 2. amir × %30. İki onaylı değerlendirme tamamlandığında hesaplanır; fark yüzde puan olarak gösterilir.')}<section class="card card-body"><div class="toolbar">${selectionFilter('calibration-period','Dönem',[...new Map(rows.map(x=>[x.periodId,{id:x.periodId,name:x.periodName}])).values()],[],'Tüm dönemler')}</div><div id="calibration-list"></div></section>`;
+    app.innerHTML=`${pageHead('Onaylı Amir Sonuçları','Ortalama Puan, ekip amirlerinin güncel ağırlıklarıyla hesaplanır. Tüm atanmış amirlerin onaylı değerlendirmeleri gerekir.')}${spreadsheetActions(false,false,true,true)}<section class="card card-body"><div class="toolbar">${selectionFilter('calibration-period','Dönem',[...new Map(rows.map(x=>[x.periodId,{id:x.periodId,name:x.periodName}])).values()],[],'Tüm dönemler')}</div><div id="calibration-list"></div></section>`;
+    bindSpreadsheetActions('calibration', () => ({periodIds:selectedFilterValues('calibration-period').map(Number)}), calibrationPage);
     const render=()=>{
       const periods=selectedFilterValues('calibration-period'); const filtered=rows.filter(x=>!periods.length||periods.includes(String(x.periodId)));
-      document.querySelector('#calibration-list').innerHTML=filtered.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Çalışan / ekip</th><th>Dönem</th><th>Amir sonuçları</th><th>Birleşik başarı</th><th>Fark (yüzde puan)</th></tr></thead><tbody>${filtered.map(x=>`<tr><td>${esc(x.employeeName)}<br><small>${esc(x.professionName)}</small></td><td>${esc(x.periodName)}</td><td>${managerScores(x.scores)}</td><td>${combinedScore(x)}</td><td>${x.scores.length>1?formatNumber(x.difference):'—'}</td></tr>`).join('')}</tbody></table></div>`:emptyState('Onaylı sonuç yok','Erişebildiğiniz onaylı değerlendirmeler burada karşılaştırılır.');
+      document.querySelector('#calibration-list').innerHTML=filtered.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Çalışan / ekip</th><th>Dönem</th><th>Amir sonuçları</th><th>Ortalama Puan</th></tr></thead><tbody>${filtered.map(x=>`<tr><td>${esc(x.employeeName)}<br><small>${esc(x.professionName)}</small></td><td>${esc(x.periodName)}</td><td>${managerScores(x.scores)}</td><td>${combinedScore(x)}</td></tr>`).join('')}</tbody></table></div>`:emptyState('Onaylı sonuç yok','Erişebildiğiniz onaylı değerlendirmeler burada karşılaştırılır.');
     };state.filterController=bindSelectionFilters(render);render();
   } catch(error) { showError(error,calibrationPage); }
 }
@@ -965,7 +1055,7 @@ async function leavesPage() {
   try {
     state.leaveFilters ||= {employeeId:'', professionId:'', from:'', to:'', activeOnly:'true', page:1};
     const query = new URLSearchParams(Object.entries(state.leaveFilters).filter(([,value])=>value!==''));
-    const [data, employees, professions] = await Promise.all([api(`/api/leaves?${query}`), api('/api/employees'), api('/api/professions')]);
+    const [data, employees, professions] = await Promise.all([api(`/api/leaves/balances?${query}`), api('/api/employees'), api('/api/professions')]);
     state.leaveEmployees = employees;
     state.leaveProfessions = professions;
     state.leaveRows = data.items;
@@ -976,14 +1066,14 @@ async function leavesPage() {
 function renderLeaves(data) {
   const filter=state.leaveFilters;
   const pageCount=Math.max(1,Math.ceil(data.totalCount/data.pageSize));
-  app.innerHTML=`${pageHead('İzin Takibi','Excel dosyasından yüklenen çalışan izinlerini görüntüleyin.')}${spreadsheetActions(hasPermission(12),true)}
+  app.innerHTML=`${pageHead('İzin Takibi','Excel dosyasından yüklenen kalan izin günlerini ve izin hak ediş tarihlerini görüntüleyin.')}${spreadsheetActions(hasPermission(12),true)}
     <section class="card"><div class="card-body"><div class="toolbar" id="leave-filters">
       ${selectionFilter('leave-employee','Çalışan',state.leaveEmployees,filter.employeeId,'Tüm çalışanlar',{multiple:false})}
       ${selectionFilter('leave-profession','Ekip (meslek grubu)',state.leaveProfessions,filter.professionId,'Tüm ekipler',{multiple:false})}
-      <div class="field"><label for="leave-from">Başlangıç</label><input class="input" type="date" id="leave-from" name="from" value="${esc(filter.from)}"></div>
-      <div class="field"><label for="leave-to">Bitiş</label><input class="input" type="date" id="leave-to" name="to" value="${esc(filter.to)}"></div>
+      <div class="field"><label for="leave-from">Hak ediş tarihi (başlangıç)</label><input class="input" type="date" id="leave-from" name="from" value="${esc(filter.from)}"></div>
+      <div class="field"><label for="leave-to">Hak ediş tarihi (bitiş)</label><input class="input" type="date" id="leave-to" name="to" value="${esc(filter.to)}"></div>
       </div></div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Çalışan</th><th>Ekip</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Açıklama</th></tr></thead><tbody>${data.items.length?data.items.map(row=>`<tr><td>${esc(row.employeeName)}</td><td>${esc(row.professionName)}</td><td>${esc(row.leaveType)}</td><td>${formatDate(row.startDate)}</td><td>${formatDate(row.endDate)}</td><td>${esc(row.note||'—')}</td></tr>`).join(''):`<tr><td colspan="6">${emptyState('İzin kaydı bulunamadı','İzinleri görmek için Excel yükleyin veya filtreleri değiştirin.')}</td></tr>`}</tbody></table></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Adı Soyadı</th><th>Ekip</th><th>Kalan İzin Gün Sayısı</th><th>İzin Hak Ediş Tarihi</th></tr></thead><tbody>${data.items.length?data.items.map(row=>`<tr><td>${esc(row.employeeName)}</td><td>${esc(row.professionName)}</td><td>${formatNumber(row.remainingDays)}</td><td>${formatDate(row.entitlementDate)}</td></tr>`).join(''):`<tr><td colspan="4">${emptyState('İzin bakiyesi bulunamadı','Bakiyeleri görmek için Excel yükleyin veya filtreleri değiştirin.')}</td></tr>`}</tbody></table></div>
       <div class="card-body actions"><span>${data.totalCount} kayıt · Sayfa ${data.page} / ${pageCount}</span><button class="button secondary" id="leave-previous" ${data.page>1?'':'disabled'}>Önceki</button><button class="button secondary" id="leave-next" ${data.page<pageCount?'':'disabled'}>Sonraki</button></div></section>`;
   const from=document.querySelector('#leave-from'),to=document.querySelector('#leave-to');
   const apply=()=>{
@@ -1007,6 +1097,16 @@ async function authorizationPage(){
   }catch(error){showError(error,authorizationPage);}
 }
 function renderAuthorization(){
+  state.filterController?.abort();
+  state.teamManagerFilters ||= {team:[], manager:[]};
+  const filters = state.teamManagerFilters;
+  const managerOptions = new Map();
+  state.teamManagers.forEach(row => {
+    if (row.firstManagerUserId) managerOptions.set(row.firstManagerUserId, {id:row.firstManagerUserId,name:row.firstManagerName});
+    if (row.secondManagerUserId) managerOptions.set(row.secondManagerUserId, {id:row.secondManagerUserId,name:row.secondManagerName});
+    (row.managers || []).forEach(manager => managerOptions.set(manager.managerUserId, {id:manager.managerUserId,name:manager.managerName}));
+  });
+  const managers = [...managerOptions.values()].sort((a,b)=>a.name.localeCompare(b.name,'tr'));
   app.innerHTML=`${pageHead('Yetkilendirme','Kullanıcı hesaplarını, rolleri ve rol yetkilerini yönetin.',`<button class="button secondary" id="add-role">${icon('plus')}Rol ekle</button><button class="button primary" id="add-user">${icon('plus')}Kullanıcı ekle</button>`)}
   <section class="card" style="margin-bottom:20px"><div class="card-head"><h2>Kullanıcı hesapları</h2></div><div class="table-wrap"><table class="table"><thead><tr><th>Kullanıcı</th><th>Rol</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${state.authUsers.filter(x=>x.isActive).map(x=>`<tr><td><strong>${esc(x.displayName)}</strong><br><small>${esc(x.userName)}</small></td><td>${esc(x.roleName)}</td><td><span class="badge ${x.isActive?'active':'inactive'}">${x.isActive?'Aktif':'Pasif'}</span></td><td>${rowActionMenu(`user-${x.id}`, x.displayName, `<button type="button" class="row-action" role="menuitem" data-user="${x.id}">Düzenle</button>${managementActionButtons('authorization/users', x)}`)}</td></tr>`).join('')}</tbody></table></div></section>
   <section class="card"><div class="card-head"><h2>Rol ve yetki yönetimi</h2></div><div class="card-body">${state.roles.filter(role=>role.isActive).map(role=>`<div class="actions" style="margin-bottom:8px"><span style="flex:1">${esc(role.name)} · ${state.rolePermissions.filter(x=>x.roleId===role.id&&x.isAllowed&&!retiredPermissions.has(x.permission)).length} yetki</span>${rowActionMenu(`role-${role.id}`, role.name, `<button type="button" class="row-action" role="menuitem" data-role-edit="${role.id}">Düzenle</button><button type="button" class="row-action" role="menuitem" data-role-permissions="${role.id}">Yetkileri yönet</button>${managementActionButtons('authorization/roles', role)}`)}</div>`).join('')}</div></section>`;
@@ -1015,32 +1115,104 @@ function renderAuthorization(){
   bindManagementActions('authorization/roles', state.roles, renderAuthorization);
   document.querySelector('#add-user').onclick=()=>userEditor();document.querySelector('#add-role').onclick=()=>roleEditor();document.querySelectorAll('[data-user]').forEach(b=>b.onclick=()=>userEditor(state.authUsers.find(x=>x.id===Number(b.dataset.user))));
   document.querySelectorAll('[data-role-permissions]').forEach(b=>b.onclick=()=>permissionEditor(state.roles.find(x=>x.id===Number(b.dataset.rolePermissions))));document.querySelectorAll('[data-role-edit]').forEach(b=>b.onclick=()=>roleEditor(state.roles.find(x=>x.id===Number(b.dataset.roleEdit))));
-  app.insertAdjacentHTML('beforeend', `<section class="card" style="margin-top:20px"><div class="card-head"><h2>Ekip ve amir bağlılıkları</h2></div><div class="card-body"><p>Ekip amirleri tüm çalışanlara uygulanır. Yeni çalışanlar da ekibin bağlılığını devralır. Birleşik sonuçta 1. amir %70, 2. amir %30 ağırlıklıdır.</p><div class="search">${icon('search')}<input class="input" id="manager-assignment-search" aria-label="Ekip veya amir ara" placeholder="Ekip veya amir ara" value="${esc(state.managerAssignmentSearch || '')}"></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Ekip</th><th>Çalışan</th><th>1. amir · %70</th><th>2. amir · %30</th><th>İşlem</th></tr></thead><tbody id="manager-assignment-rows"></tbody></table></div></section>`);
-  document.querySelector('#manager-assignment-search').oninput = event => { state.managerAssignmentSearch = event.target.value; renderTeamManagers(); };
+  app.insertAdjacentHTML('beforeend', `<section class="card" style="margin-top:20px"><div class="card-head"><h2>Ekip ve amir bağlılıkları</h2></div><div class="card-body"><p>İstediğiniz sayıda amir ekleyip toplam %100 olacak şekilde ağırlıklarını belirleyin. Güncel oranlar mevcut birleşik sonuçlara da uygulanır. Ekip amirleri tüm çalışanlara uygulanır.</p><div class="toolbar history-filters" id="manager-assignment-filters">${selectionFilter('manager-assignment-team','Ekipler',state.teamManagers.map(row=>({id:row.professionId,name:row.professionName})),filters.team,'Tüm ekipler')}${selectionFilter('manager-assignment-manager','Amirler',managers,filters.manager,'Tüm amirler')}</div></div><div class="table-wrap"><table class="table"><thead><tr><th>Ekip</th><th>Çalışan</th><th>Amirler ve ağırlıkları</th><th>İşlem</th></tr></thead><tbody id="manager-assignment-rows"></tbody></table></div></section>`);
+  state.filterController = bindSelectionFilters(renderTeamManagers, document.querySelector('#manager-assignment-filters'));
   renderTeamManagers();
 }
 
 function renderTeamManagers() {
-  const term = (state.managerAssignmentSearch || '').toLocaleLowerCase('tr-TR');
-  const rows = state.teamManagers.filter(row => !term || `${row.professionName} ${row.firstManagerName || ''} ${row.secondManagerName || ''}`.toLocaleLowerCase('tr-TR').includes(term));
-  document.querySelector('#manager-assignment-rows').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.professionName)}</strong>${row.hasMixedAssignments ? '<br><small>Mevcut çalışan bağlılıkları farklı; ekip amirlerini seçin.</small>' : ''}</td><td>${row.employeeCount}</td><td>${esc(row.firstManagerName || 'Atanmadı')}</td><td>${esc(row.secondManagerName || 'Atanmadı')}</td><td>${rowActionMenu(`team-manager-${row.professionId}`, row.professionName, `<button type="button" class="row-action" role="menuitem" data-team-manager="${row.professionId}">Amirleri düzenle</button>`)}</td></tr>`).join('') : `<tr><td colspan="5">${emptyState('Ekip bulunamadı', 'Arama ölçütlerini değiştirebilirsiniz.')}</td></tr>`;
+  const filters = state.teamManagerFilters;
+  filters.team = selectedFilterValues('manager-assignment-team');
+  filters.manager = selectedFilterValues('manager-assignment-manager');
+  const rows = state.teamManagers.filter(row => (!filters.team.length || filters.team.includes(String(row.professionId)))
+    && (!filters.manager.length || [row.firstManagerUserId,row.secondManagerUserId,...(row.managers || []).map(x=>x.managerUserId)]
+      .some(id=>filters.manager.includes(String(id)))));
+  document.querySelector('#manager-assignment-rows').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.professionName)}</strong>${row.hasMixedAssignments ? '<br><small>Mevcut çalışan bağlılıkları farklı; ekip amirlerini seçin.</small>' : ''}</td><td>${row.employeeCount}</td><td>${row.managers?.length ? row.managers.map(manager=>`<div>${manager.position}. amir · ${esc(manager.managerName)} · %${formatNumber(manager.weightPercent)}</div>`).join('') : 'Atanmadı'}</td><td>${rowActionMenu(`team-manager-${row.professionId}`, row.professionName, `<button type="button" class="row-action" role="menuitem" data-team-manager="${row.professionId}">Amirleri düzenle</button>`)}</td></tr>`).join('') : `<tr><td colspan="4">${emptyState('Ekip bulunamadı', 'Arama ölçütlerini değiştirebilirsiniz.')}</td></tr>`;
   bindPageActionMenus();
   document.querySelectorAll('[data-team-manager]').forEach(button => button.onclick = () => teamManagersEditor(state.teamManagers.find(row => row.professionId === Number(button.dataset.teamManager))));
 }
 
 function teamManagersEditor(row) {
-  const managers = currentId => state.authUsers.filter(user => user.id === currentId || (user.isActive
-    && state.roles.some(role => role.id === user.roleId && role.isActive) && ['first-manager', 'second-manager', 'administrator'].includes(user.roleCode)))
-    .map(user => ({id:user.id, name:user.displayName}));
-  openDialog(`${row.professionName} · Ekip amirleri`, `<div class="form-grid"><p class="field full">Bu atama, pasif kayıtlar dahil ekipteki ${row.employeeCount} çalışana ve sonradan eklenen çalışanlara uygulanır.</p><div class="field"><label>1. amir · %70</label><select class="filter-select" name="firstManagerUserId">${optionList(managers(row.firstManagerUserId), row.firstManagerUserId, 'Atanmadı')}</select></div><div class="field"><label>2. amir · %30</label><select class="filter-select" name="secondManagerUserId">${optionList(managers(row.secondManagerUserId), row.secondManagerUserId, 'Atanmadı')}</select></div></div>`, async form => {
-    const firstManagerUserId = Number(form.get('firstManagerUserId')) || null;
-    const secondManagerUserId = Number(form.get('secondManagerUserId')) || null;
-    if (firstManagerUserId && firstManagerUserId === secondManagerUserId) throw new Error('1. ve 2. amir farklı kullanıcılar olmalıdır.');
-    await api(`/api/authorization/team-managers/${row.professionId}`, {method:'PUT', body:JSON.stringify({professionId:row.professionId, firstManagerUserId, secondManagerUserId})});
+  const assigned = new Set((row.managers || []).map(x=>x.managerUserId));
+  const users = state.authUsers.filter(user => assigned.has(user.id) || (user.isActive
+    && state.roles.some(role => role.id === user.roleId && role.isActive)
+    && ['first-manager', 'second-manager', 'administrator'].includes(user.roleCode)))
+    .map(user=>({id:user.id, name:user.displayName}));
+  let nextKey = 0;
+  const managerRow = (manager={}) => {
+    const key = nextKey++;
+    return `<div class="team-manager-row" data-manager-row="${key}"><div class="field"><label for="manager-user-${key}">Amir</label><select id="manager-user-${key}" class="filter-select" name="manager-${key}" required>${optionList(users, manager.managerUserId, 'Amir seçiniz')}</select></div><div class="field"><label for="manager-weight-${key}">Etki oranı (%)</label><input id="manager-weight-${key}" class="input" name="weight-${key}" type="number" min="0.01" max="100" step="0.01" value="${manager.weightPercent ?? ''}" required></div><button class="icon-button team-manager-remove" type="button" data-remove-manager aria-label="Amiri kaldır" title="Amiri kaldır">${icon('close')}</button></div>`;
+  };
+  openDialog(`${row.professionName} · Ekip amirleri`, `<p>Bu atama, pasif kayıtlar dahil ekipteki ${row.employeeCount} çalışana ve sonradan eklenen çalışanlara uygulanır. Oran değişiklikleri mevcut birleşik sonuçları da günceller.</p><div id="team-manager-fields">${(row.managers || []).map(managerRow).join('')}</div><p id="team-manager-total" role="status"></p><p>Bir oran değiştiğinde kalan yüzde diğer amirler arasında orantılı paylaşılır.</p><button class="button secondary" id="add-team-manager" type="button">${icon('plus')}Amir ekle</button>`, async form => {
+    const managers = [...dialogContent.querySelectorAll('[data-manager-row]')].map(element=>({managerUserId:Number(form.get(`manager-${element.dataset.managerRow}`)), weightPercent:Number(form.get(`weight-${element.dataset.managerRow}`))}));
+    if (new Set(managers.map(x=>x.managerUserId)).size !== managers.length) throw new Error('Aynı amir birden fazla kez seçilemez.');
+    if (managers.some(x=>!x.managerUserId || x.weightPercent<=0 || x.weightPercent>100)
+      || (managers.length && managers.reduce((sum,x)=>sum+Math.round(x.weightPercent*100),0)!==10000)) throw new Error('Amirleri seçin ve pozitif ağırlıkların toplamını %100 yapın.');
+    if (!managers.length && !confirm('Ekibin tüm amir atamaları kaldırılsın mı?')) throw new Error('Amir atamaları korundu.');
+    await api(`/api/authorization/team-managers/${row.professionId}`, {method:'PUT', body:JSON.stringify({professionId:row.professionId, managers})});
     state.teamManagers = await api('/api/authorization/team-managers');
-    renderTeamManagers();
-    toast('Ekip amirleri tüm çalışanlara uygulandı.');
+    renderAuthorization();
+    toast('Ekip amirleri ve ağırlıkları kaydedildi.');
   });
+  const updateTotal = () => {
+    const total = [...dialogContent.querySelectorAll('[name^="weight-"]')].reduce((sum,input)=>sum+Math.round(Number(input.value)*100),0)/100;
+    dialogContent.querySelector('#team-manager-total').textContent = `Toplam etki: %${formatNumber(total)} · Hedef: %100`;
+  };
+  const weightInputs = () => [...dialogContent.querySelectorAll('input[name^="weight-"]')];
+  const distributeWeights = (inputs, total) => {
+    if (!inputs.length || total < inputs.length) return;
+    const entries = inputs.map((input, index) => ({input, index, weight:Math.max(0, Math.min(10000, Math.round(Number(input.value) * 100) || 0)), units:0}));
+    let pending = [...entries];
+    let remaining = total;
+    while (pending.length) {
+      const weightSum = pending.reduce((sum, entry) => sum + entry.weight, 0);
+      const minimums = weightSum > 0 ? pending.filter(entry => remaining * entry.weight < weightSum) : [];
+      if (minimums.length) {
+        minimums.forEach(entry => { entry.units = 1; remaining--; });
+        pending = pending.filter(entry => !minimums.includes(entry));
+        continue;
+      }
+      const divisor = weightSum || pending.length;
+      pending.forEach(entry => {
+        const numerator = remaining * (weightSum ? entry.weight : 1);
+        entry.units = Math.floor(numerator / divisor);
+        entry.remainder = numerator % divisor;
+      });
+      const extra = remaining - pending.reduce((sum, entry) => sum + entry.units, 0);
+      pending.sort((a, b) => b.remainder - a.remainder || a.index - b.index)
+        .slice(0, extra).forEach(entry => entry.units++);
+      break;
+    }
+    entries.forEach(entry => { entry.input.value = String(entry.units / 100); });
+  };
+  const balanceWeights = changed => {
+    const inputs = weightInputs();
+    if (changed.value !== '' && changed.validity.valid) {
+      if (inputs.length === 1) changed.value = '100';
+      else distributeWeights(inputs.filter(input => input !== changed), 10000 - Math.round(Number(changed.value) * 100));
+    }
+    updateTotal();
+  };
+  const bindRows = () => {
+    dialogContent.querySelectorAll('[data-remove-manager]').forEach(button=>button.onclick=()=>{
+      button.closest('[data-manager-row]').remove();
+      const inputs = weightInputs();
+      distributeWeights(inputs, 10000);
+      bindRows(); updateTotal();
+    });
+    const inputs = weightInputs();
+    inputs.forEach(input => {
+      input.max = String((10000 - inputs.length + 1) / 100);
+      input.oninput = () => balanceWeights(input);
+    });
+  };
+  dialogContent.querySelector('#add-team-manager').onclick = () => {
+    dialogContent.querySelector('#team-manager-fields').insertAdjacentHTML('beforeend', managerRow());
+    bindRows(); updateTotal();
+    const selections = enhanceSelects(dialogContent.querySelector('#team-manager-fields').lastElementChild);
+    dialog.addEventListener('close',()=>selections.abort(),{once:true});
+  };
+  bindRows(); updateTotal();
 }
 function userEditor(row={}){openDialog(row.id?'Kullanıcıyı düzenle':'Yeni kullanıcı',`<div class="form-grid"><div class="field"><label>Kullanıcı adı</label><input class="input" name="userName" value="${esc(row.userName)}" required></div><div class="field"><label>Görünen ad</label><input class="input" name="displayName" value="${esc(row.displayName)}" required></div><div class="field"><label>Rol</label><select class="filter-select" name="roleId">${state.roles.filter(x=>x.isActive||x.id===row.roleId).map(x=>`<option value="${x.id}" ${row.roleId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>${row.id?'':'<div class="field full"><label>İlk giriş parolası</label><input class="input" type="password" name="password" autocomplete="new-password" required><small>En az 10 karakter; büyük/küçük harf, rakam ve özel karakter.</small></div>'}<label class="check-row"><input type="checkbox" name="isActive" ${row.isActive!==false?'checked':''}> Aktif kullanıcı</label></div>`,async form=>{await api('/api/authorization/users',{method:'POST',body:JSON.stringify({id:row.id||null,userName:form.get('userName'),displayName:form.get('displayName'),roleId:Number(form.get('roleId')),employeeId:row.employeeId??null,isActive:form.get('isActive')==='on',password:row.id?null:form.get('password')})});toast('Kullanıcı kaydedildi.');await authorizationPage();});}
 function roleEditor(row={}){openDialog(row.id?'Rolü düzenle':'Yeni rol',`<div class="form-grid"><div class="field"><label>Rol adı</label><input class="input" name="name" value="${esc(row.name)}" required></div><div class="field"><label>Rol kodu</label><input class="input" name="code" value="${esc(row.code)}" ${row.isSystem?'readonly':''} required><small>Küçük harf ve tire kullanın.</small></div><label class="check-row"><input type="checkbox" name="isActive" ${row.isActive!==false?'checked':''}> Aktif rol</label></div>`,async form=>{await api('/api/authorization/roles',{method:'POST',body:JSON.stringify({id:row.id||null,name:form.get('name'),code:form.get('code'),isActive:form.get('isActive')==='on'})});toast('Rol kaydedildi.');await authorizationPage();});}

@@ -32,3 +32,19 @@ public sealed class EmployeeLeaveConfiguration : IEntityTypeConfiguration<Employ
         builder.HasOne(x => x.UpdatedByUser).WithMany().HasForeignKey(x => x.UpdatedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+public sealed class EmployeeLeaveBalanceConfiguration : IEntityTypeConfiguration<EmployeeLeaveBalance>
+{
+    public void Configure(EntityTypeBuilder<EmployeeLeaveBalance> builder)
+    {
+        builder.ToTable("employee_leave_balance");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.RemainingDays).HasColumnType("decimal(18,2)");
+        builder.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+        builder.HasIndex(x => x.EmployeeId).IsUnique();
+        builder.HasIndex(x => new { x.EntitlementDate, x.Id });
+        builder.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.UpdatedByUser).WithMany().HasForeignKey(x => x.UpdatedByUserId).OnDelete(DeleteBehavior.Restrict);
+    }
+}

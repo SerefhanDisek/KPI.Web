@@ -23,6 +23,7 @@ public sealed class ProfessionRepository(KpiDbContext db) : IProfessionRepositor
             ?? throw new ValidationException("Meslek bulunamadı.");
         const string usedMessage = "Meslek başka kayıtlarda kullanıldığı için silinemez. Pasife alabilirsiniz.";
         if (await db.Employees.AnyAsync(x => x.ProfessionId == id, ct)
+            || await db.TeamManagerAssignments.AnyAsync(x => x.ProfessionId == id, ct)
             || await db.KpiCriteria.AnyAsync(x => x.ProfessionId == id || x.Professions.Any(p => p.ProfessionId == id), ct)
             || await db.CompetencyMatrixEntries.AnyAsync(x => x.ProfessionId == id, ct))
             throw new ValidationException(usedMessage);

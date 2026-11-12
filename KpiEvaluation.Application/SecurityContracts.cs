@@ -34,7 +34,10 @@ public sealed record RolePermissionDto(int RoleId, AppPermission Permission, boo
 public sealed record EmployeeManagerDto(int EmployeeId, string EmployeeName, int? FirstManagerUserId,
     string? FirstManagerName, int? SecondManagerUserId, string? SecondManagerName, string? ProfessionName = null);
 public sealed record TeamManagerDto(int ProfessionId, string ProfessionName, int EmployeeCount, int? FirstManagerUserId,
-    string? FirstManagerName, int? SecondManagerUserId, string? SecondManagerName, bool HasMixedAssignments);
+    string? FirstManagerName, int? SecondManagerUserId, string? SecondManagerName, bool HasMixedAssignments,
+    IReadOnlyList<TeamManagerWeightDto>? Managers = null);
+public sealed record TeamManagerInput(int ManagerUserId, decimal WeightPercent);
+public sealed record TeamManagerWeightDto(int ManagerUserId, string ManagerName, int Position, decimal WeightPercent);
 public sealed record ManagerDashboardDto(int UserId, string ManagerName, string RoleCode, string RoleName, int EmployeeCount,
     int ApprovedEvaluationCount, int PendingEvaluationCount, decimal AveragePercentage, IReadOnlyList<LookupDto>? Teams = null);
 

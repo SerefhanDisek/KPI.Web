@@ -27,6 +27,7 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
             ?? throw new ValidationException("Kullanıcı bulunamadı.");
         const string usedMessage = "Kullanıcı başka kayıtlarda kullanıldığı için silinemez. Pasife alabilirsiniz.";
         if (await db.Employees.AnyAsync(x => x.FirstManagerUserId == id || x.SecondManagerUserId == id, ct)
+            || await db.TeamManagerAssignments.AnyAsync(x => x.ManagerUserId == id, ct)
             || await db.Professions.AnyAsync(x => x.FirstManagerUserId == id || x.SecondManagerUserId == id, ct)
             || await db.EmployeeEvaluations.AnyAsync(x => x.EvaluatorUserId == id || x.ApprovedByUserId == id, ct)
             || await db.EmployeeLeaves.AnyAsync(x => x.CreatedByUserId == id || x.UpdatedByUserId == id, ct)
@@ -200,23 +201,35 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
                 x.FirstManagerUser == null ? null : x.FirstManagerUser.DisplayName, x.SecondManagerUserId,
                 x.SecondManagerUser == null ? null : x.SecondManagerUser.DisplayName,
                 x.Employees.Any(employee => employee.FirstManagerUserId != x.FirstManagerUserId
-                    || employee.SecondManagerUserId != x.SecondManagerUserId))).ToListAsync(ct);
+                    || employee.SecondManagerUserId != x.SecondManagerUserId),
+                x.ManagerAssignments.OrderBy(manager => manager.Position)
+                    .Select(manager => new TeamManagerWeightDto(manager.ManagerUserId, manager.ManagerUser.DisplayName, manager.Position, manager.WeightPercent)).ToList())).ToListAsync(ct);
 
-    public async Task SaveTeamManagersAsync(int professionId, int? firstManagerUserId, int? secondManagerUserId, CancellationToken ct = default)
+    public async Task SaveTeamManagersAsync(int professionId, IReadOnlyList<TeamManagerInput> managers, CancellationToken ct = default)
     {
-        if (firstManagerUserId == secondManagerUserId && firstManagerUserId is not null)
-            throw new ValidationException("1. ve 2. amir farklı kullanıcılar olmalıdır.");
+        if (managers is null || managers.Any(x => x is null)) throw new ValidationException("Amir listesi gereklidir.");
+        if (managers.Select(x => x.ManagerUserId).Distinct().Count() != managers.Count)
+            throw new ValidationException("Aynı amir birden fazla kez seçilemez.");
+        if (managers.Any(x => x.ManagerUserId <= 0 || x.WeightPercent <= 0 || x.WeightPercent > 100
+                || decimal.Round(x.WeightPercent, 2) != x.WeightPercent)
+            || (managers.Count > 0 && managers.Sum(x => x.WeightPercent) != 100))
+            throw new ValidationException("Amir ağırlıkları pozitif, en fazla iki ondalık basamaklı olmalı ve toplamı %100 olmalıdır.");
         await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
-        var team = await db.Professions.SingleOrDefaultAsync(x => x.Id == professionId && x.IsActive, ct)
+        var team = await db.Professions.Include(x => x.ManagerAssignments).SingleOrDefaultAsync(x => x.Id == professionId && x.IsActive, ct)
             ?? throw new ValidationException("Aktif ekip bulunamadı.");
-        if (firstManagerUserId != team.FirstManagerUserId && firstManagerUserId is not null
-            && !await db.AppUsers.AnyAsync(x => x.Id == firstManagerUserId && x.IsActive && x.Role.IsActive
-                && (x.Role.Code == RoleCodes.FirstManager || x.Role.Code == RoleCodes.SecondManager || x.Role.Code == RoleCodes.Administrator), ct))
-            throw new ValidationException("Geçerli bir 1. amir seçmelisiniz.");
-        if (secondManagerUserId != team.SecondManagerUserId && secondManagerUserId is not null
-            && !await db.AppUsers.AnyAsync(x => x.Id == secondManagerUserId && x.IsActive && x.Role.IsActive
-                && (x.Role.Code == RoleCodes.FirstManager || x.Role.Code == RoleCodes.SecondManager || x.Role.Code == RoleCodes.Administrator), ct))
-            throw new ValidationException("Geçerli bir 2. amir seçmelisiniz.");
+        var existingIds = team.ManagerAssignments.Select(x => x.ManagerUserId).ToHashSet();
+        var newIds = managers.Where(x => !existingIds.Contains(x.ManagerUserId)).Select(x => x.ManagerUserId).ToArray();
+        if (await db.AppUsers.CountAsync(x => newIds.Contains(x.Id) && x.IsActive && x.Role.IsActive
+                && (x.Role.Code == RoleCodes.FirstManager || x.Role.Code == RoleCodes.SecondManager || x.Role.Code == RoleCodes.Administrator), ct) != newIds.Length)
+            throw new ValidationException("Yeni atamalar için aktif bir amir veya sistem yöneticisi seçmelisiniz.");
+        // Flush removals before reinserting so position swaps cannot violate the unique index.
+        db.TeamManagerAssignments.RemoveRange(team.ManagerAssignments);
+        await db.SaveChangesAsync(ct);
+        for (var index = 0; index < managers.Count; index++)
+            db.TeamManagerAssignments.Add(new TeamManagerAssignment { ProfessionId = professionId, ManagerUserId = managers[index].ManagerUserId,
+                Position = index + 1, WeightPercent = managers[index].WeightPercent });
+        int? firstManagerUserId = managers.Count > 0 ? managers[0].ManagerUserId : null;
+        int? secondManagerUserId = managers.Count > 1 ? managers[1].ManagerUserId : null;
         team.FirstManagerUserId = firstManagerUserId;
         team.SecondManagerUserId = secondManagerUserId;
         var employees = await db.Employees.Where(x => x.ProfessionId == professionId).ToListAsync(ct);
@@ -236,6 +249,7 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
         var managers = await db.AppUsers.AsNoTracking().Where(x => x.IsActive && x.Role.IsActive
                 && (x.Role.Code == RoleCodes.FirstManager || x.Role.Code == RoleCodes.SecondManager
                     || db.Professions.Any(team => team.FirstManagerUserId == x.Id || team.SecondManagerUserId == x.Id)
+                    || db.TeamManagerAssignments.Any(assignment => assignment.ManagerUserId == x.Id)
                     || db.Employees.Any(employee => employee.FirstManagerUserId == x.Id || employee.SecondManagerUserId == x.Id)
                     || db.EmployeeEvaluations.Any(evaluation => evaluation.EvaluatorUserId == x.Id)))
             .Select(x => new { x.Id, x.DisplayName, RoleCode=x.Role.Code, RoleName=x.Role.Name }).ToListAsync(ct);
@@ -243,12 +257,14 @@ public sealed class AccessControlRepository(KpiDbContext db) : IAccessControlRep
         foreach (var manager in managers)
         {
             var employeeIds = db.Employees.AsNoTracking().Where(x => x.IsActive &&
-                (x.FirstManagerUserId == manager.Id || x.SecondManagerUserId == manager.Id)).Select(x => x.Id);
+                (x.FirstManagerUserId == manager.Id || x.SecondManagerUserId == manager.Id
+                    || x.Profession.ManagerAssignments.Any(assignment => assignment.ManagerUserId == manager.Id))).Select(x => x.Id);
             var evaluations = db.EmployeeEvaluations.AsNoTracking().Where(x => x.EvaluatorUserId == manager.Id &&
                 (periodId == null || x.EvaluationPeriodId == periodId));
             var approved = await evaluations.Where(x => x.Status == EvaluationStatus.Approved).ToListAsync(ct);
             var teams = await db.Professions.AsNoTracking().Where(x => x.IsActive
                     && (x.FirstManagerUserId == manager.Id || x.SecondManagerUserId == manager.Id
+                        || x.ManagerAssignments.Any(assignment => assignment.ManagerUserId == manager.Id)
                         || x.Employees.Any(employee => employee.IsActive && employeeIds.Contains(employee.Id))))
                 .OrderBy(x => x.Name).ThenBy(x => x.Id).Select(x => new LookupDto(x.Id, x.Name)).ToListAsync(ct);
             result.Add(new(manager.Id, manager.DisplayName, manager.RoleCode, manager.RoleName, await employeeIds.CountAsync(ct), approved.Count,

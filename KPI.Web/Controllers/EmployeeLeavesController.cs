@@ -1,5 +1,6 @@
 using KpiEvaluation.Application;
 using KpiEvaluation.Application.Features.EmployeeLeaves.Queries.GetEmployeeLeaves;
+using KpiEvaluation.Application.Features.EmployeeLeaves.Queries.GetEmployeeLeaveBalances;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,5 +15,11 @@ public sealed class EmployeeLeavesController(ISender sender) : ControllerBase
         [FromQuery] DateOnly? from, [FromQuery] DateOnly? to, CancellationToken cancellationToken,
         [FromQuery] bool activeOnly = true, [FromQuery] int page = 1, [FromQuery] int pageSize = 25) =>
         sender.Send(new GetEmployeeLeavesQuery(employeeId, professionId, from, to, activeOnly, page, pageSize), cancellationToken);
+
+    [HttpGet("balances")]
+    public Task<EmployeeLeaveBalancePageDto> GetBalances([FromQuery] int? employeeId, [FromQuery] int? professionId,
+        [FromQuery] DateOnly? from, [FromQuery] DateOnly? to, CancellationToken cancellationToken,
+        [FromQuery] bool activeOnly = true, [FromQuery] int page = 1, [FromQuery] int pageSize = 25) =>
+        sender.Send(new GetEmployeeLeaveBalancesQuery(employeeId, professionId, from, to, activeOnly, page, pageSize), cancellationToken);
 
 }

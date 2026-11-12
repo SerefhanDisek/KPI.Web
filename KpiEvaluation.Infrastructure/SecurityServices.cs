@@ -89,11 +89,16 @@ public sealed class SecuritySeeder(KpiDbContext db, SecurityBootstrapOptions opt
             var secondManagerId = await db.AppUsers.Where(x => x.UserName == "melih.yurtsever").Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
             var teams = await db.Professions.Include(x => x.Employees)
                 .Where(x => x.FirstManagerUserId == null && x.SecondManagerUserId == null
+                    && !x.ManagerAssignments.Any()
                     && !x.Employees.Any(employee => employee.FirstManagerUserId != null || employee.SecondManagerUserId != null)).ToListAsync(ct);
             foreach (var team in teams)
             {
                 team.FirstManagerUserId = firstManagerId;
                 team.SecondManagerUserId = secondManagerId;
+                if (firstManagerId is { } first)
+                    team.ManagerAssignments.Add(new TeamManagerAssignment { ManagerUserId = first, Position = 1, WeightPercent = secondManagerId is null ? 100 : 70 });
+                if (secondManagerId is { } second)
+                    team.ManagerAssignments.Add(new TeamManagerAssignment { ManagerUserId = second, Position = firstManagerId is null ? 1 : 2, WeightPercent = firstManagerId is null ? 100 : 30 });
                 foreach (var employee in team.Employees)
                 {
                     employee.FirstManagerUserId = firstManagerId;

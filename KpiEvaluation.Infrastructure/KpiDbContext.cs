@@ -8,6 +8,7 @@ namespace KpiEvaluation.Infrastructure;
 public sealed class KpiDbContext(DbContextOptions<KpiDbContext> options, ICurrentUser? currentUser = null) : DbContext(options)
 {
     public DbSet<Profession> Professions => Set<Profession>();
+    public DbSet<TeamManagerAssignment> TeamManagerAssignments => Set<TeamManagerAssignment>();
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<KpiCriterion> KpiCriteria => Set<KpiCriterion>();
     public DbSet<CompanyGoal> CompanyGoals => Set<CompanyGoal>();
@@ -19,6 +20,7 @@ public sealed class KpiDbContext(DbContextOptions<KpiDbContext> options, ICurren
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<PageDefinition> PageDefinitions => Set<PageDefinition>();
     public DbSet<EmployeeLeave> EmployeeLeaves => Set<EmployeeLeave>();
+    public DbSet<EmployeeLeaveBalance> EmployeeLeaveBalances => Set<EmployeeLeaveBalance>();
     public DbSet<EvaluationEmployeeResponse> EvaluationEmployeeResponses => Set<EvaluationEmployeeResponse>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<CompetencyMatrixEntry> CompetencyMatrixEntries => Set<CompetencyMatrixEntry>();

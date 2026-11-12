@@ -13,19 +13,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
         var evaluation = await db.EmployeeEvaluations.Include(x => x.Details)
             .SingleOrDefaultAsync(x => x.Id == evaluationId, ct)
             ?? throw new ValidationException("Değerlendirme bulunamadı.");
-        if (!await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId).AnyAsync(x => x.Id == evaluationId, ct))
-            throw new AuthorizationException();
-        var permission = evaluation.Status == EvaluationStatus.Approved ? AppPermission.EvaluationApprove : AppPermission.EvaluationCreate;
-        var actor = await db.AppUsers.AsNoTracking().Where(x => x.Id == requesterUserId && x.IsActive && x.Role.IsActive)
-            .Select(x => new { x.RoleId, x.Role.Code }).SingleOrDefaultAsync(ct) ?? throw new AuthorizationException();
-        if (actor.Code != RoleCodes.Administrator && !await db.RolePermissions.AnyAsync(x => x.RoleId == actor.RoleId && x.Permission == permission && x.IsAllowed, ct))
-            throw new AuthorizationException();
-        if (evaluation.Status == EvaluationStatus.Approved)
-        {
-            if (evaluation.ApprovedByUserId != requesterUserId)
-                throw new AuthorizationException("Onaylı değerlendirmeyi yalnızca onaylayan kullanıcı silebilir.");
-        }
-        else await EnsureEvaluationEditAccessAsync(evaluation.EvaluatorUserId, requesterUserId, evaluation.Status, ct);
+        if (evaluation.EvaluatorUserId != requesterUserId)
+            throw new AuthorizationException("Değerlendirmeyi yalnızca değerlendirmeyi yapan kişi silebilir.");
         var responses = await db.EvaluationEmployeeResponses.Where(x => x.EvaluationId == evaluationId).ToListAsync(ct);
         db.EvaluationEmployeeResponses.RemoveRange(responses);
         db.EmployeeEvaluations.Remove(evaluation);
@@ -53,6 +42,9 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
             .Select(x => new { x.Id, x.ProfessionId, x.FullName, ProfessionName = x.Profession.Name, x.FirstManagerUserId, x.SecondManagerUserId })
             .SingleOrDefaultAsync(ct) ?? throw new ValidationException("Aktif çalışan bulunamadı.");
         await EnsureEmployeeAccessAsync(employee.Id, evaluatorUserId, ct);
+        var managerPosition = await db.TeamManagerAssignments.AsNoTracking()
+            .Where(x => x.ProfessionId == employee.ProfessionId && x.ManagerUserId == evaluatorUserId)
+            .Select(x => (int?)x.Position).SingleOrDefaultAsync(ct);
         if (await db.EmployeeEvaluations.AsNoTracking().AnyAsync(x => x.EmployeeId == employee.Id && x.EvaluationPeriodId == input.EvaluationPeriodId && x.EvaluatorUserId == evaluatorUserId, ct))
             throw new DuplicateEvaluationException();
         var period = await db.EvaluationPeriods.AsNoTracking()
@@ -95,10 +87,12 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
                 AverageScore = Math.Round((decimal)input.Items.Average(x => x.Score), 2),
                 WeightedScore = weightedScore,
                 MaximumScore = input.Items.Count * 5,
-                ScorePercentage = Math.Round(weightedScore * 20, 2),
+                ScorePercentage = Math.Round((weightTotal > 0
+                    ? input.Items.Sum(x => x.Score * criteriaById[x.KpiCriterionId].WeightPercent) / weightTotal
+                    : (decimal)input.Items.Sum(x => x.Score) / input.Items.Count) * 20, 2),
                 EvaluatorUserId = evaluatorUserId,
-                EvaluatorManagerLevelSnapshot = evaluatorUserId is null ? null
-                    : employee.FirstManagerUserId == evaluatorUserId ? 1 : employee.SecondManagerUserId == evaluatorUserId ? 2 : null,
+                EvaluatorManagerLevelSnapshot = managerPosition ?? (evaluatorUserId is null ? null
+                    : employee.FirstManagerUserId == evaluatorUserId ? 1 : employee.SecondManagerUserId == evaluatorUserId ? 2 : null),
                 GeneralNote = input.GeneralNote?.Trim(),
                 ManagerFeedback=input.ManagerFeedback?.Trim(),EmployeeFeedback=input.EmployeeFeedback?.Trim(),DevelopmentAction=input.DevelopmentAction?.Trim(),FollowUpDate=input.FollowUpDate,
                 Status=isDraft?EvaluationStatus.Draft:EvaluationStatus.Approved,
@@ -154,13 +148,14 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
             .Select(x => new EvaluationSummaryDto(x.Id, x.EmployeeNameSnapshot, x.ProfessionNameSnapshot,
                 x.PeriodNameSnapshot,x.TotalScore,x.AverageScore,x.EvaluationDate,x.GeneralNote,x.WeightedScore,x.Status,x.ManagerFeedback,x.EmployeeFeedback,x.DevelopmentAction,x.FollowUpDate,
                 x.MaximumScore,x.ScorePercentage,x.EvaluatorUserId,x.EvaluatorUser==null?null:x.EvaluatorUser.DisplayName,x.ApprovedAt,
-                canEdit && x.Status != EvaluationStatus.Approved && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator),
-                canApprove && x.Status == EvaluationStatus.Completed && (roleCode == RoleCodes.Administrator
-                    || ((roleCode == RoleCodes.FirstManager || roleCode == RoleCodes.SecondManager)
-                        && (x.Employee.FirstManagerUserId == requesterUserId || x.Employee.SecondManagerUserId == requesterUserId))),
+                canEdit && (x.EvaluatorUserId == requesterUserId || (x.Status != EvaluationStatus.Approved && roleCode == RoleCodes.Administrator)),
+                canEdit && canApprove && x.Status != EvaluationStatus.Approved
+                    && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator)
+                    && x.Details.Any() && x.Details.All(detail => detail.Score >= 1 && detail.Score <= 5),
                 x.EmployeeId, x.ProfessionIdSnapshot, x.EvaluationPeriodId,
-                x.Status == EvaluationStatus.Approved ? canApprove && x.ApprovedByUserId == requesterUserId
-                    : canEdit && (x.EvaluatorUserId == requesterUserId || roleCode == RoleCodes.Administrator), x.EvaluatorManagerLevelSnapshot))
+                requesterUserId != null && x.EvaluatorUserId == requesterUserId, x.EvaluatorManagerLevelSnapshot,
+                db.TeamManagerAssignments.Where(manager => manager.ProfessionId == x.ProfessionIdSnapshot).OrderBy(manager => manager.Position)
+                    .Select(manager => new TeamManagerWeightDto(manager.ManagerUserId, manager.ManagerUser.DisplayName, manager.Position, manager.WeightPercent)).ToList()))
             .ToListAsync(ct);
     }
 
@@ -215,6 +210,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
             ?? throw new ValidationException("Değerlendirme bulunamadı.");
         if (!await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), requesterUserId).AnyAsync(x => x.Id == evaluationId, ct)) throw new AuthorizationException();
         await EnsureEvaluationEditAccessAsync(evaluation.EvaluatorUserId, requesterUserId, evaluation.Status, ct);
+        if (evaluation.Status == EvaluationStatus.Approved && status != EvaluationStatus.Draft)
+            throw new ValidationException("Onaylı değerlendirmede değişiklikler taslak olarak kaydedilmelidir. Düzenleme sonrasında yeniden onay gerekir.");
         if (evaluation.UpdatedAt != expectedUpdatedAt)
             throw new ValidationException("Değerlendirme başka bir işlemle güncellendi. Değişiklikleriniz kaydedilmedi; güncel taslağı açıp tekrar deneyin.");
         if (items.Select(x => x.DetailId).Distinct().Count() != items.Count)
@@ -245,7 +242,9 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
             ? Math.Round(evaluation.Details.Sum(x => x.Score * x.WeightPercentSnapshot) / weightTotal, 2)
             : evaluation.AverageScore;
         evaluation.MaximumScore = items.Count * 5;
-        evaluation.ScorePercentage = Math.Round(evaluation.WeightedScore * 20, 2);
+        evaluation.ScorePercentage = Math.Round((weightTotal > 0
+            ? evaluation.Details.Sum(x => x.Score * x.WeightPercentSnapshot) / weightTotal
+            : (decimal)items.Sum(x => x.Score) / items.Count) * 20, 2);
         foreach (var detail in evaluation.Details)
             detail.WeightedScore = weightTotal > 0 ? Math.Round(detail.Score * detail.WeightPercentSnapshot / weightTotal, 4) : Math.Round((decimal)detail.Score / evaluation.Details.Count, 4);
         evaluation.Status=isDraft?EvaluationStatus.Draft:EvaluationStatus.Approved;
@@ -261,15 +260,16 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
     {
         var evaluation = await db.EmployeeEvaluations.Include(x => x.Details).SingleOrDefaultAsync(x => x.Id == evaluationId, ct)
             ?? throw new ValidationException("Değerlendirme bulunamadı.");
-        await EnsureEmployeeAccessAsync(evaluation.EmployeeId, approverUserId, ct);
+        if (!await ApplyAccessFilter(db.EmployeeEvaluations.AsNoTracking(), approverUserId).AnyAsync(x => x.Id == evaluationId, ct))
+            throw new AuthorizationException();
         if (evaluation.Status == EvaluationStatus.Approved) return;
-        if (evaluation.Status != EvaluationStatus.Completed)
-            throw new ValidationException("Bu değerlendirme onaylanabilir durumda değil.");
+        await EnsureEvaluationEditAccessAsync(evaluation.EvaluatorUserId, approverUserId, evaluation.Status, ct);
         ValidateScores(evaluation.Details.Select(x => new EvaluationItemInput(x.KpiCriterionId, x.Score, x.Note, x.ActualValue)).ToList());
         evaluation.Status = EvaluationStatus.Approved;
         evaluation.ApprovedByUserId = approverUserId;
         evaluation.ApprovedAt = DateTime.UtcNow;
-        evaluation.UpdatedAt = DateTime.UtcNow;
+        var updatedAt = DateTime.UtcNow;
+        evaluation.UpdatedAt = evaluation.UpdatedAt is { } previous && updatedAt <= previous ? previous.AddTicks(1) : updatedAt;
         await SaveEvaluationChangesAsync(ct);
     }
 
@@ -284,11 +284,16 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
 
     private async Task EnsureEvaluationEditAccessAsync(int? evaluatorUserId, int? requesterUserId, EvaluationStatus status, CancellationToken ct)
     {
+        if (status == EvaluationStatus.Approved)
+        {
+            if (requesterUserId is null || evaluatorUserId != requesterUserId)
+                throw new AuthorizationException("Onaylı değerlendirmeyi yalnızca değerlendirmeyi yapan kişi düzenleyebilir.");
+            return;
+        }
         if (requesterUserId is null) return;
         if (evaluatorUserId != requesterUserId && !await db.AppUsers.AsNoTracking()
             .AnyAsync(x => x.Id == requesterUserId && x.IsActive && x.Role.IsActive && x.Role.Code == RoleCodes.Administrator, ct))
             throw new AuthorizationException("Başka bir amirin değerlendirmesini yalnızca görüntüleyebilirsiniz.");
-        if (status == EvaluationStatus.Approved) throw new ValidationException("Onaylanmış değerlendirme değiştirilemez.");
     }
 
     private async Task EnsureEmployeeAccessAsync(int employeeId, int? userId, CancellationToken ct)
@@ -300,7 +305,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
         var allowed = user.RoleCode switch
         {
             RoleCodes.FirstManager or RoleCodes.SecondManager => await db.Employees.AnyAsync(x => x.Id == employeeId
-                && (x.FirstManagerUserId == userId || x.SecondManagerUserId == userId), ct),
+                && (x.FirstManagerUserId == userId || x.SecondManagerUserId == userId
+                    || x.Profession.ManagerAssignments.Any(manager => manager.ManagerUserId == userId)), ct),
             RoleCodes.Employee => user.EmployeeId == employeeId,
             _ => false
         };
@@ -317,7 +323,8 @@ public sealed class EvaluationRepository(KpiDbContext db) : IEvaluationRepositor
         {
             RoleCodes.Administrator or RoleCodes.HumanResources => query,
             RoleCodes.FirstManager or RoleCodes.SecondManager => query.Where(x => x.Employee.FirstManagerUserId == userId
-                || x.Employee.SecondManagerUserId == userId || x.EvaluatorUserId == userId),
+                || x.Employee.SecondManagerUserId == userId || x.EvaluatorUserId == userId
+                || x.Employee.Profession.ManagerAssignments.Any(manager => manager.ManagerUserId == userId)),
             RoleCodes.Employee => query.Where(x => x.EmployeeId == user.EmployeeId && x.Status == EvaluationStatus.Approved),
             _ => query.Where(_ => false)
         };

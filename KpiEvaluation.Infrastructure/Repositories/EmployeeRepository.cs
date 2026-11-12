@@ -26,6 +26,7 @@ public sealed class EmployeeRepository(KpiDbContext db) : IEmployeeRepository
         if (await db.EmployeeEvaluations.AnyAsync(x => x.EmployeeId == id, ct)
             || await db.AppUsers.AnyAsync(x => x.EmployeeId == id, ct)
             || await db.EmployeeLeaves.AnyAsync(x => x.EmployeeId == id, ct)
+            || await db.EmployeeLeaveBalances.AnyAsync(x => x.EmployeeId == id, ct)
             || await db.DevelopmentItems.AnyAsync(x => x.EmployeeId == id, ct))
             throw new ValidationException(usedMessage);
         db.Employees.Remove(entity);

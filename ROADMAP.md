@@ -3,24 +3,24 @@
 ## Geçerli kapsam
 
 - Geçici Kaydet taslağı saklar; Kalıcı Kaydet oluşturma ve onaylama izinleriyle doğrudan onaylar. Yeni bir amir onay zinciri eklenmez.
-- İki amir aynı çalışan/dönem için bağımsız değerlendirme yapar. İki onaylı kayıt tamamlandığında birleşik başarı, 1. amir %70 ve 2. amir %30 ağırlıkla gösterilir; bireysel puanlar korunur.
+- Ekipte istenen sayıda amir aynı çalışan/dönem için bağımsız değerlendirme yapar. Birleşik başarı Yetkilendirme ekranında toplam %100 olarak belirlenen güncel amir ağırlıklarıyla hesaplanır; oran değişiklikleri mevcut sonuçlara da uygulanır, bireysel puanlar korunur.
 - Çalışan görüşü ve kabulü korunur; itiraz süreci kullanıcı isteğiyle kapsamdan çıkarılmıştır.
 - Sayfa tasarımcısı ve buna bağlı low-code geliştirmeleri kullanıcı isteğiyle kaldırılmıştır. Eski sayfa verileri saklanır; menü, tarayıcı akışı ve API erişimi yoktur.
 - E-posta ve Teams entegrasyonları kullanıcı isteğiyle kapsam dışıdır.
 - Değerlendirme Görevleri, Yetkinlik / Kıdem Matrisi ve Denetim Kayıtları ekranları kaldırılmıştır. İzin ekranı yalnızca Excel yükleme ve listeleme içindir.
-- Uygulama dönemsel puanlamaya odaklanır. Bireysel Hedefler ve Gelişim ekranı ve API işlemleri kaldırılmıştır; mevcut kayıtlar korunur. Yetkilendirme kullanıcıları, rolleri, rol yetkilerini ve ekip bazında 1./2. amir bağlılıklarını içerir; mevcut çalışan bağlantıları ve amir atamaları korunur. Amir kartları bağlı ekipleri gösterir.
+- Uygulama dönemsel puanlamaya odaklanır. Bireysel Hedefler ve Gelişim ekranı ve API işlemleri kaldırılmıştır; mevcut kayıtlar korunur. Yetkilendirme kullanıcıları, rolleri, rol yetkilerini ve ekip bazında amir bağlılıklarını ve etki oranlarını içerir; mevcut çalışan bağlantıları ve amir atamaları korunur. Amir kartları bağlı ekipleri gösterir.
 
 ## Öncelik ve durum
 
 | Sıra | İş | Durum | Uygulanan kapsam |
 |---|---|---|---|
 | 1 | Taslak kaydetme ve devam etme | Tamamlandı | Kayıtlı puanlar, notlar, gerçekleşen değerler ve KPI anlık görüntüleri yüklenir. Aynı kayıt güncellenir; eski sekmeler güncel kaydı ezemez. |
-| 2 | Değerlendirme durumları | Mevcut onay akışı doğrulandı ve korundu | Taslak eksik puan kabul eder. Kalıcı kayıt tam puanlama ve iki izinle doğrudan onaylanır. Onaylı puanlar değiştirilemez; onaylı kaydı yalnızca onaylayan kişi mevcut yetkileriyle silebilir; geçersiz yazma durumları reddedilir. Tarihsel durum değerleri uyumluluk için korunur; yeni paylaşım/onay zinciri eklenmez. |
-| 3 | İki amirin ayrı değerlendirmesi | Tamamlandı | Çalışan/dönem/değerlendiren birleşimi benzersizdir. Taslak, onay ve Excel aktarımı amire aittir. Geçmiş kayıtlar korunur, dashboard çalışanları mükerrer saymaz. |
+| 2 | Değerlendirme durumları | Mevcut onay akışı doğrulandı ve korundu | Taslak eksik puan kabul eder. Kalıcı kayıt tam puanlama ve iki izinle doğrudan onaylanır. Onaylı kaydı yalnızca değerlendiren kişi düzenleyebilir; kaydetme taslağa döndürüp onay bilgilerini temizler ve yeniden onay gerektiğini belirten uyarı gösterir; kalıcı kayıt dahil her değerlendirmeyi yalnızca değerlendiren kişi geçmiş yetkisiyle silebilir; geçersiz yazma durumları reddedilir. Tarihsel durum değerleri uyumluluk için korunur; yeni paylaşım/onay zinciri eklenmez. |
+| 3 | Amirlerin ayrı değerlendirmesi | Tamamlandı | Çalışan/dönem/değerlendiren birleşimi benzersizdir. Taslak, onay ve Excel aktarımı amire aittir. Geçmiş kayıtlar korunur, dashboard çalışanları mükerrer saymaz. |
 | 4 | Çalışan görüşü ve kabulü | Tamamlandı; itiraz iptal | Yetkili çalışan kendi onaylı değerlendirmesine görüş/kabul ekler. Yanıt geçmişi saklanır; onaylı puanlar ve değerlendirme durumu değişmez. |
 | 5 | Denetim kaydı ve güvenlik | Denetim ekranı kullanıcı isteğiyle kaldırıldı | Denetim ekranı ve liste API erişimi yoktur; önceki veriler ve uygulama iç denetimi korunur. CSRF, güvenlik başlıkları, isteğe bağlı parola değişimi ve üretim başlangıç parolası kuralları devam eder. |
 | 6 | Döngü, görev ve hatırlatma | Kullanıcı isteğiyle kaldırıldı | Değerlendirme görev ekranı, API erişimi ve görev bildirimleri kaldırıldı. Mevcut dönemler ve amir değerlendirmeleri devam eder. |
-| 7 | Onaylı Amir Sonuçları | Karşılaştırma paneli tamamlandı | Erişilebilen onaylı amir sonuçları yan yana gösterilir; yüzde puan farkı hesaplanır. Birleşik başarı 1. amir %70 ve 2. amir %30 ile hesaplanır; iki onaylı kayıt gerekir. Değerlendirme anındaki amir sırası saklanır ve bireysel puanlar korunur. |
+| 7 | Onaylı Amir Sonuçları | Karşılaştırma paneli tamamlandı | Erişilebilen onaylı amir sonuçları yan yana gösterilir; ekran ve beş sütunlu Excel raporunda fark sütunu bulunmaz. Birleşik başarı güncel amir etki oranlarıyla hesaplanır; tüm atanmış amirlerin onaylı kaydı gerekir. Değerlendirme anındaki amir sırası saklanır ve bireysel puanlar korunur. |
 | 8 | Yetkinlik/kıdem matrisi | Kullanıcı isteğiyle kaldırıldı | Menü, tarayıcı ekranı ve API erişimi kaldırıldı; önceki matris kayıtları saklanır. |
 | 9 | Bireysel hedefler, check-in, gelişim planları | Kullanıcı isteğiyle kaldırıldı | Menü, tarayıcı ekranı ve API erişimi kaldırıldı; önceki hedef, gelişim planı ve görüşme kayıtları korunur. |
 | 10 | Low-code / sayfa tasarımcısı | Kullanıcı isteğiyle kaldırıldı | Tasarım, yayın, sürümleme, veri kaynağı kataloğu ve grafik bileşeni geliştirmeleri kapsam dışıdır. |
@@ -37,7 +37,7 @@
 ## Doğrulama kapsamı
 
 - Eksik taslak, tekrar kaydetme, yeniden açma, eski sekme ve örtüşen veritabanı yazmaları.
-- Aynı çalışan/dönem için bağımsız iki amir kaydı; amir bazlı Excel aktarımı ve erişim sınırları.
+- Aynı çalışan/dönem için bağımsız amir kayıtları; amir bazlı Excel aktarımı ve erişim sınırları.
 - Çalışan görüşü/kabulü, itirazın reddedilmesi ve onaylı içeriğin korunması.
 - İç denetim aktörü, parola malzemesinin hariç tutulması ve kayıt değişikliğinin engellenmesi.
 - Kaldırılan bireysel gelişim ekranı ve API işlemlerinin erişilememesi, eski kayıtların korunması ve kullanıcı düzenlemede çalışan bağlantısı/parolanın değişmemesi.

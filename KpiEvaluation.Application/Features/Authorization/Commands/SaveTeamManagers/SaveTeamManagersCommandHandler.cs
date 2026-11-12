@@ -5,5 +5,5 @@ namespace KpiEvaluation.Application.Features.Authorization.Commands.SaveTeamMana
 
 public sealed class SaveTeamManagersCommandHandler(IAccessControlRepository repository) : IRequestHandler<SaveTeamManagersCommand>
 {
-    public Task Handle(SaveTeamManagersCommand request, CancellationToken cancellationToken) => repository.SaveTeamManagersAsync(request.ProfessionId, request.FirstManagerUserId, request.SecondManagerUserId, cancellationToken);
+    public Task Handle(SaveTeamManagersCommand request, CancellationToken cancellationToken) => repository.SaveTeamManagersAsync(request.ProfessionId, request.Managers, cancellationToken);
 }

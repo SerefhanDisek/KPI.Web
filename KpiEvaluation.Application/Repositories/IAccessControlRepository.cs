@@ -20,7 +20,7 @@ public interface IAccessControlRepository
     Task SaveEmployeeManagersAsync(int employeeId, int? firstManagerUserId, int? secondManagerUserId,
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TeamManagerDto>> GetTeamManagersAsync(CancellationToken cancellationToken = default);
-    Task SaveTeamManagersAsync(int professionId, int? firstManagerUserId, int? secondManagerUserId,
+    Task SaveTeamManagersAsync(int professionId, IReadOnlyList<TeamManagerInput> managers,
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ManagerDashboardDto>> GetManagerDashboardAsync(int? periodId, CancellationToken cancellationToken = default);
 }
