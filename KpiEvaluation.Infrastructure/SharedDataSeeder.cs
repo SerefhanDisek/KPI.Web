@@ -15,9 +15,10 @@ public interface ISharedDataSeeder
 
 public sealed class SharedDataSeeder(KpiDbContext db, SecurityBootstrapOptions bootstrap) : ISharedDataSeeder
 {
-    public const string Version = "shared-data-20261112-v1";
+    public const string Version = "shared-data-20261122-v2";
+    public const string PreviousVersion = "shared-data-20261112-v1";
     public const string NewDatabaseMarker = Version + ":new-database";
-    public const string FileName = "08_shared_data_20261112.json";
+    public const string FileName = "09_shared_data_20261122.json";
     private static readonly CultureInfo Turkish = CultureInfo.GetCultureInfo("tr-TR");
     private readonly List<SecurityBootstrapAccount> accounts = [];
     private readonly HashSet<int> updatedRoles = [];
@@ -33,8 +34,6 @@ public sealed class SharedDataSeeder(KpiDbContext db, SecurityBootstrapOptions b
     private List<CompanyGoal> goals = [];
     private List<KpiCriterion> kpis = [];
     private List<KpiCriterionProfession> scopes = [];
-    private List<EmployeeEvaluation> evaluations = [];
-    private List<EvaluationEmployeeResponse> responses = [];
     private List<EmployeeLeave> leaves = [];
     private List<EmployeeLeaveBalance> balances = [];
     private HashSet<string> auditKeys = [];
@@ -44,6 +43,13 @@ public sealed class SharedDataSeeder(KpiDbContext db, SecurityBootstrapOptions b
         await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         if (await db.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM __KpiSeedHistory WHERE ScriptName = {Version}").SingleAsync(ct) != 0)
             return [];
+        // The new package only removes test data; never reimport master data on an existing installation.
+        if (await db.Database.SqlQuery<int>($"SELECT COUNT(*) AS [Value] FROM __KpiSeedHistory WHERE ScriptName = {PreviousVersion}").SingleAsync(ct) != 0)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO __KpiSeedHistory(ScriptName) VALUES({Version})", ct);
+            await transaction.CommitAsync(ct);
+            return [];
+        }
         var path = Path.Combine(AppContext.BaseDirectory, "Database", FileName);
         var package = JsonSerializer.Deserialize<SeedPackage>(await File.ReadAllTextAsync(path, ct))
             ?? throw new InvalidDataException("Paylaşılan başlangıç veri paketi okunamadı.");
@@ -59,8 +65,6 @@ public sealed class SharedDataSeeder(KpiDbContext db, SecurityBootstrapOptions b
         goals = await db.CompanyGoals.ToListAsync(ct);
         kpis = await db.KpiCriteria.ToListAsync(ct);
         scopes = await db.Set<KpiCriterionProfession>().ToListAsync(ct);
-        evaluations = await db.EmployeeEvaluations.ToListAsync(ct);
-        responses = await db.EvaluationEmployeeResponses.ToListAsync(ct);
         leaves = await db.EmployeeLeaves.ToListAsync(ct);
         balances = await db.EmployeeLeaveBalances.ToListAsync(ct);
         auditKeys = (await db.AuditEntries.AsNoTracking().ToListAsync(ct)).Select(AuditKey).ToHashSet();
@@ -196,32 +200,6 @@ public sealed class SharedDataSeeder(KpiDbContext db, SecurityBootstrapOptions b
                 { var scope = new KpiCriterionProfession { KpiCriterionId = target.Id, ProfessionId = Id(map.Professions, link.ProfessionId) }; scopes.Add(scope); db.Set<KpiCriterionProfession>().Add(scope); }
                 await db.SaveChangesAsync(ct);
             }
-            map.Kpis[sourceId] = target.Id;
-        }
-        foreach (var item in source.Rows<EmployeeEvaluation>("employee_evaluation"))
-        {
-            var sourceId = item.Id; item.EmployeeId = Id(map.Employees, item.EmployeeId); item.EvaluationPeriodId = Id(map.Periods, item.EvaluationPeriodId);
-            item.EvaluatorUserId = OptionalId(map.Users, item.EvaluatorUserId);
-            var target = Unique(evaluations.Where(x => x.EmployeeId == item.EmployeeId && x.EvaluationPeriodId == item.EvaluationPeriodId && x.EvaluatorUserId == item.EvaluatorUserId), "değerlendirme");
-            if (target is null)
-            {
-                item.Id = 0; item.ProfessionIdSnapshot = Id(map.Professions, item.ProfessionIdSnapshot); item.ApprovedByUserId = OptionalId(map.Users, item.ApprovedByUserId);
-                target = item; evaluations.Add(target); db.EmployeeEvaluations.Add(target); await db.SaveChangesAsync(ct); map.NewEvaluations.Add(target.Id);
-            }
-            map.Evaluations[sourceId] = target.Id;
-        }
-        foreach (var item in source.Rows<EmployeeEvaluationDetail>("employee_evaluation_detail"))
-        {
-            item.EmployeeEvaluationId = LongId(map.Evaluations, item.EmployeeEvaluationId);
-            if (!map.NewEvaluations.Contains(item.EmployeeEvaluationId)) continue;
-            item.Id = 0; item.KpiCriterionId = Id(map.Kpis, item.KpiCriterionId); db.EmployeeEvaluationDetails.Add(item);
-        }
-        await db.SaveChangesAsync(ct);
-        foreach (var item in source.Rows<EvaluationEmployeeResponse>("evaluation_employee_response"))
-        {
-            item.EvaluationId = LongId(map.Evaluations, item.EvaluationId); item.UserId = Id(map.Users, item.UserId);
-            if (responses.Any(x => x.EvaluationId == item.EvaluationId && x.UserId == item.UserId && x.CreatedAt == item.CreatedAt && x.Decision == item.Decision && x.Comment == item.Comment)) continue;
-            item.Id = 0; responses.Add(item); db.EvaluationEmployeeResponses.Add(item);
         }
         foreach (var item in source.Rows<EmployeeLeave>("employee_leave"))
         {
@@ -257,7 +235,6 @@ public sealed class SharedDataSeeder(KpiDbContext db, SecurityBootstrapOptions b
     }
     private static int Id(Dictionary<int, int> map, int id) => map.TryGetValue(id, out var target) ? target : throw new InvalidDataException("Başlangıç verisinde eksik ilişkili kayıt var.");
     private static int? OptionalId(Dictionary<int, int> map, int? id) => id is null ? null : Id(map, id.Value);
-    private static long LongId(Dictionary<long, long> map, long id) => map.TryGetValue(id, out var target) ? target : throw new InvalidDataException("Başlangıç verisinde eksik değerlendirme var.");
     private static string AuditKey(AuditEntry row) => JsonSerializer.Serialize(new { row.UserId, row.EntityType, row.EntityId, row.Action, row.ChangedFieldsJson, row.CreatedAt });
     private sealed record SeedPackage(string Version, SeedSource[] Sources);
     private sealed record SeedSource(string Name, Dictionary<string, JsonElement[]> Tables)
@@ -275,10 +252,7 @@ public sealed class SharedDataSeeder(KpiDbContext db, SecurityBootstrapOptions b
         public Dictionary<int, int> Employees { get; } = [];
         public Dictionary<int, int> Periods { get; } = [];
         public Dictionary<int, int> Goals { get; } = [];
-        public Dictionary<int, int> Kpis { get; } = [];
-        public Dictionary<long, long> Evaluations { get; } = [];
         public HashSet<int> LinkedUsers { get; } = [];
         public HashSet<int> NewProfessions { get; } = [];
-        public HashSet<long> NewEvaluations { get; } = [];
     }
 }

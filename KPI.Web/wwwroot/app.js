@@ -318,6 +318,57 @@ function toast(message, type = 'success') {
   setTimeout(() => { element.remove(); if (!region.childElementCount) region.hidePopover(); }, 5000);
 }
 
+let activeMessageBox;
+
+function messageBox(message, {title = 'Bilgilendirme', confirm = false, confirmText = 'Tamam', type = 'info', signal} = {}) {
+  if (signal?.aborted) return Promise.resolve(false);
+  activeMessageBox?.abort();
+  const controller = new AbortController();
+  activeMessageBox = controller;
+  const box = document.createElement('dialog');
+  box.id = 'message-box';
+  box.className = `dialog message-dialog ${type}`;
+  box.setAttribute('role', 'alertdialog');
+  box.setAttribute('aria-labelledby', 'message-box-title');
+  box.setAttribute('aria-describedby', 'message-box-description');
+  box.innerHTML = `<div class="message-heading"><span class="message-icon">${icon(type === 'info' ? 'info' : 'warning')}</span><button type="button" class="icon-button" data-dismiss aria-label="Kapat">${icon('close')}</button></div><div class="message-content"><h2 id="message-box-title">${esc(title)}</h2><p id="message-box-description">${esc(message)}</p></div><div class="dialog-foot">${confirm?'<button type="button" class="button secondary" data-dismiss>Vazgeç</button>':''}<button type="button" class="button ${type === 'danger' ? 'danger' : 'primary'}" data-accept>${esc(confirmText)}</button></div>`;
+  const previousFocus = document.activeElement.closest('.row-actions')?.querySelector('[data-action-menu]') || document.activeElement;
+  const owner = dialog.open ? dialogContent.firstElementChild : null;
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = accepted => {
+      if (settled) return;
+      settled = true;
+      controller.abort();
+      if (box.open) box.close();
+      box.remove();
+      if (activeMessageBox === controller) activeMessageBox = null;
+      if (previousFocus?.isConnected && !previousFocus.disabled) previousFocus.focus({preventScroll:true});
+      resolve(accepted);
+    };
+    controller.signal.addEventListener('abort', () => finish(false), {once:true});
+    signal?.addEventListener('abort', () => finish(false), {once:true, signal:controller.signal});
+    window.addEventListener('hashchange', () => finish(false), {signal:controller.signal});
+    if (owner) {
+      dialog.addEventListener('close', () => { if (!dialog.open || !owner.isConnected) finish(false); }, {signal:controller.signal});
+      const observer = new MutationObserver(() => { if (!owner.isConnected) finish(false); });
+      observer.observe(dialogContent, {childList:true});
+      controller.signal.addEventListener('abort', () => observer.disconnect(), {once:true});
+    }
+    box.addEventListener('cancel', event => { event.preventDefault(); finish(false); }, {signal:controller.signal});
+    box.addEventListener('close', () => finish(false), {signal:controller.signal});
+    box.addEventListener('click', event => {
+      const bounds = box.getBoundingClientRect();
+      if (event.target === box && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) finish(false);
+    }, {signal:controller.signal});
+    box.querySelectorAll('[data-dismiss]').forEach(button => button.onclick = () => finish(false));
+    box.querySelector('[data-accept]').onclick = () => finish(true);
+    document.body.append(box);
+    box.showModal();
+    box.querySelector(confirm ? '.dialog-foot [data-dismiss]' : '[data-accept]').focus({preventScroll:true});
+  });
+}
+
 function openDialog(title, body, onSubmit, wide = false) {
   dialog.classList.toggle('wide', wide);
   dialogContent.innerHTML = `<form id="dialog-form"><div class="dialog-head"><h2>${esc(title)}</h2><button type="button" class="icon-button" data-close aria-label="Kapat">${icon('close')}</button></div><div class="dialog-body">${body}</div><div class="dialog-foot"><button type="button" class="button secondary" data-close>Vazgeç</button><button type="submit" class="button primary">Kaydet</button></div></form>`;
@@ -329,7 +380,7 @@ function openDialog(title, body, onSubmit, wide = false) {
     form.dataset.saving = 'true';
     const submits = [...form.querySelectorAll('[type="submit"]')];
     submits.forEach(x => x.disabled = true);
-    try { await onSubmit(new FormData(form)); if (form.isConnected) dialog.close(); }
+    try { const result = await onSubmit(new FormData(form)); if (result !== false && form.isConnected) dialog.close(); }
     catch (error) { toast(error.message, 'error'); }
     finally { form.dataset.saving = 'false'; submits.forEach(x => x.disabled = false); }
   };
@@ -369,8 +420,8 @@ function bindManagementActions(resource, rows, refresh) {
     const id = Number(permanent ? button.dataset.deleteRecord : button.dataset.deactivateRecord);
     const row = rows.find(x => x.id === id);
     const label = row.fullName ?? row.displayName ?? row.name;
-    if (!confirm(permanent ? `“${label}” kalıcı olarak silinsin mi? Bu işlem geri alınamaz. Başka kayıtlarda kullanılan kayıtlar silinemez.` : `“${label}” pasife alınsın mı? Mevcut kayıtlar korunacak.`)) return;
     const owner = button.closest('.card');
+    if (!await messageBox(permanent ? `“${label}” kalıcı olarak silinsin mi? Bu işlem geri alınamaz. Başka kayıtlarda kullanılan kayıtlar silinemez.` : `“${label}” pasife alınsın mı? Mevcut kayıtlar korunacak.`, {title:permanent?'Kaydı kalıcı olarak sil':'Kaydı pasife al', confirm:true, confirmText:permanent?'Kalıcı olarak sil':'Pasife al', type:permanent?'danger':'warning', signal:state.actionMenuController?.signal}) || !button.isConnected) return;
     const buttons = [...button.closest('.row-actions').querySelectorAll('button')];
     const disabled = buttons.map(x => x.disabled);
     buttons.forEach(x => x.disabled = true);
@@ -724,8 +775,8 @@ async function changeKpi(button, permanent) {
   const id = Number(permanent ? button.dataset.deleteKpi : button.dataset.deactivateKpi);
   const row = state.kpis.find(x => x.id === id);
   const message = permanent ? `“${row.title}” kalıcı olarak silinsin mi? Bu işlem geri alınamaz. Değerlendirmelerde kullanılan KPI’lar silinemez.` : `“${row.title}” pasife alınsın mı? Yeni değerlendirmelerde gösterilmeyecek; kayıtlı değerlendirmeler korunacak.`;
-  if (!confirm(message)) return;
   const table = document.querySelector('#kpi-rows');
+  if (!await messageBox(message, {title:permanent?'KPI’ı kalıcı olarak sil':'KPI’ı pasife al', confirm:true, confirmText:permanent?'Kalıcı olarak sil':'Pasife al', type:permanent?'danger':'warning', signal:state.actionMenuController?.signal}) || !button.isConnected || document.querySelector('#kpi-rows') !== table) return;
   const actions = button.closest('.row-actions');
   actions.querySelectorAll('button').forEach(x => x.disabled = true);
   try {
@@ -905,7 +956,9 @@ function evaluationSummary() {
 function updateEvaluationSummary() {
   const summary = document.querySelector('#evaluation-summary'); if (!summary) return; const oldNote = document.querySelector('#general-note')?.value || ''; summary.innerHTML = evaluationSummary(); document.querySelector('#general-note').value = oldNote; document.querySelector('#save-evaluation').onclick = () => saveEvaluation(4); document.querySelector('#save-draft').onclick = () => saveEvaluation(0);
   const reload = document.querySelector('#reload-evaluation');
-  if (reload) reload.onclick = () => { if (confirm('Kaydedilmemiş değişiklikler bırakılıp güncel taslak yüklensin mi?')) loadEvaluationCriteria(); };
+  if (reload) reload.onclick = async () => {
+    if (await messageBox('Kaydedilmemiş değişiklikler bırakılıp güncel taslak yüklensin mi?', {title:'Taslağı yeniden yükle', confirm:true, confirmText:'Yeniden yükle', type:'warning', signal:state.evaluationController?.signal}) && reload.isConnected) loadEvaluationCriteria();
+  };
 }
 
 async function saveEvaluation(status) {
@@ -947,6 +1000,7 @@ async function editEvaluation(id, {onSaved = historyPage, onClose = null} = {}) 
     const wasApproved = edit.status === 4;
     let saveStatus = 0;
     openDialog('Değerlendirmeyi düzenle', `<div class="form-grid">${wasApproved?'<p class="field full" role="status">Bu değerlendirme onaylıdır. Değişiklikler taslağa kaydedilir ve yeniden onay gerekir.</p>':''}${edit.items.map(x=>`<div class="field full"><span class="filter-label" id="edit-kpi-${x.detailId}">${esc(x.kpiTitle)}</span>${x.measurementType===0?`<div class="score-buttons" role="group" aria-labelledby="edit-kpi-${x.detailId}"><input type="hidden" name="score-${x.detailId}" value="${x.score||0}">${[1,2,3,4,5].map(score=>`<button type="button" class="score-button ${score===x.score?'selected':''}" data-edit-score="${score}" aria-pressed="${score===x.score}" aria-label="${score} puan${score===x.score?' · Seçimi kaldır':''}">${score}</button>`).join('')}</div>`:`<input class="input" type="number" step="0.01" name="actual-${x.detailId}" aria-labelledby="edit-kpi-${x.detailId}" value="${x.actualValue??''}" placeholder="Gerçekleşen (${esc(x.unit||'değer')})"><small>Hedef: ${esc(x.targetValue)} · Puan otomatik hesaplanır.</small>`}<textarea class="textarea evaluation-note" data-growing-note name="note-${x.detailId}" rows="3" aria-label="${esc(x.kpiTitle)} · Kısa not" placeholder="Kısa not" maxlength="2000">${esc(x.note)}</textarea></div>`).join('')}<div class="field full"><label>Genel not</label><textarea class="textarea" name="generalNote" maxlength="2000">${esc(edit.generalNote)}</textarea></div></div>`, async form => {
+      const editorForm = dialogContent.querySelector('#dialog-form');
       const items = edit.items.map(x => {
         const raw = form.get(`actual-${x.detailId}`);
         const actualValue = raw === '' || raw == null ? null : Number(raw);
@@ -954,8 +1008,10 @@ async function editEvaluation(id, {onSaved = historyPage, onClose = null} = {}) 
       });
       if (saveStatus === 4 && items.some(x=>x.score===0)) throw new Error('Kalıcı kayıt için tüm soruları puanlamalısınız.');
       await api(`/api/evaluations/${id}`, {method:'PUT',body:JSON.stringify({id,generalNote:form.get('generalNote'),items,status:saveStatus,expectedUpdatedAt:edit.updatedAt,managerFeedback:edit.managerFeedback,employeeFeedback:edit.employeeFeedback,developmentAction:edit.developmentAction,followUpDate:edit.followUpDate})});
-      if (wasApproved) alert('Değerlendirme tekrar taslağa döndü. Düzenleme sonrasında yeniden onaylanması gerekir.');
+      if (!editorForm.isConnected || !dialog.open) return;
+      if (wasApproved) await messageBox('Değerlendirme tekrar taslağa döndü. Düzenleme sonrasında yeniden onaylanması gerekir.', {title:'Yeniden onay gerekiyor'});
       else toast(saveStatus===0?'Geçici kayıt güncellendi.':'Değerlendirme kalıcı olarak kaydedildi ve onaylandı.');
+      if (!editorForm.isConnected || !dialog.open) return;
       await onSaved();
     }, true);
     opened = true;
@@ -1007,8 +1063,10 @@ function historyRows(rows){return rows.length?rows.map(row=>`<tr><td><div class=
 function bindHistoryActions(){bindPageActionMenus();document.querySelectorAll('[data-delete-evaluation]').forEach(button=>button.onclick=()=>deleteEvaluation(Number(button.dataset.deleteEvaluation)));document.querySelectorAll('[data-edit-evaluation]').forEach(button=>button.onclick=()=>editEvaluation(Number(button.dataset.editEvaluation)));document.querySelectorAll('[data-history]').forEach(button=>button.onclick=()=>showEvaluationDetail(Number(button.dataset.history)));document.querySelectorAll('[data-approve]').forEach(button=>button.onclick=()=>approveEvaluation(Number(button.dataset.approve)));}
 async function deleteEvaluation(id, rows = state.history, table = document.querySelector('#history-rows'), onDeleted = null) {
   const row = rows.find(x => x.id === id);
-  if (!row?.canDelete || !confirm(`“${row.employeeName} · ${row.periodName}” değerlendirmesi, KPI puanları ve çalışan yanıtları kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`)) return;
-  const buttons = [...table.querySelector(`[data-delete-evaluation="${id}"]`).closest('.row-actions').querySelectorAll('button')];
+  if (!row?.canDelete) return;
+  const action = table?.querySelector(`[data-delete-evaluation="${id}"]`);
+  if (!action || !await messageBox(`“${row.employeeName} · ${row.periodName}” değerlendirmesi, KPI puanları ve çalışan yanıtları kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`, {title:'Değerlendirmeyi kalıcı olarak sil', confirm:true, confirmText:'Kalıcı olarak sil', type:'danger'}) || !action.isConnected) return;
+  const buttons = [...action.closest('.row-actions').querySelectorAll('button')];
   buttons.forEach(button => button.disabled = true);
   try {
     await api(`/api/evaluations/${id}`, {method:'DELETE'});
@@ -1063,7 +1121,7 @@ function employeeResponseList(rows) {
 }
 
 function managerScores(scores) {
-  return scores.map(score => `<div>${score.managerLevel ? `${score.managerLevel}. amir · %${formatNumber(score.weightPercent)} · ` : ''}${esc(score.evaluatorName)}: <strong>%${formatNumber(score.percentage)}</strong>${score.managerLevel ? '' : '<br><small>Güncel ağırlıklandırmaya dahil değil</small>'}</div>`).join('');
+  return `<span class="manager-summary">${scores.map(score => `<span>${score.managerLevel ? `${score.managerLevel}. amir · %${formatNumber(score.weightPercent)} · ` : ''}${esc(score.evaluatorName)}: <strong>%${formatNumber(score.percentage)}</strong>${score.managerLevel ? '' : ' <small>Güncel ağırlıklandırmaya dahil değil</small>'}</span>`).join(' - ')}</span>`;
 }
 
 function combinedScore(row) {
@@ -1161,7 +1219,7 @@ function renderTeamManagers() {
   const rows = state.teamManagers.filter(row => (!filters.team.length || filters.team.includes(String(row.professionId)))
     && (!filters.manager.length || [row.firstManagerUserId,row.secondManagerUserId,...(row.managers || []).map(x=>x.managerUserId)]
       .some(id=>filters.manager.includes(String(id)))));
-  document.querySelector('#manager-assignment-rows').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.professionName)}</strong>${row.hasMixedAssignments ? '<br><small>Mevcut çalışan bağlılıkları farklı; ekip amirlerini seçin.</small>' : ''}</td><td>${row.employeeCount}</td><td>${row.managers?.length ? row.managers.map(manager=>`<div>${manager.position}. amir · ${esc(manager.managerName)} · %${formatNumber(manager.weightPercent)}</div>`).join('') : 'Atanmadı'}</td><td>${rowActionMenu(`team-manager-${row.professionId}`, row.professionName, `<button type="button" class="row-action" role="menuitem" data-team-manager="${row.professionId}">Amirleri düzenle</button>`)}</td></tr>`).join('') : `<tr><td colspan="4">${emptyState('Ekip bulunamadı', 'Arama ölçütlerini değiştirebilirsiniz.')}</td></tr>`;
+  document.querySelector('#manager-assignment-rows').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.professionName)}</strong>${row.hasMixedAssignments ? '<br><small>Mevcut çalışan bağlılıkları farklı; ekip amirlerini seçin.</small>' : ''}</td><td>${row.employeeCount}</td><td class="manager-summary">${row.managers?.length ? row.managers.map(manager=>`<span>${manager.position}. amir · ${esc(manager.managerName)} · %${formatNumber(manager.weightPercent)}</span>`).join(' - ') : 'Atanmadı'}</td><td>${rowActionMenu(`team-manager-${row.professionId}`, row.professionName, `<button type="button" class="row-action" role="menuitem" data-team-manager="${row.professionId}">Amirleri düzenle</button>`)}</td></tr>`).join('') : `<tr><td colspan="4">${emptyState('Ekip bulunamadı', 'Arama ölçütlerini değiştirebilirsiniz.')}</td></tr>`;
   bindPageActionMenus();
   document.querySelectorAll('[data-team-manager]').forEach(button => button.onclick = () => teamManagersEditor(state.teamManagers.find(row => row.professionId === Number(button.dataset.teamManager))));
 }
@@ -1178,11 +1236,13 @@ function teamManagersEditor(row) {
     return `<div class="team-manager-row" data-manager-row="${key}"><div class="field"><label for="manager-user-${key}">Amir</label><select id="manager-user-${key}" class="filter-select" name="manager-${key}" required>${optionList(users, manager.managerUserId, 'Amir seçiniz')}</select></div><div class="field"><label for="manager-weight-${key}">Etki oranı (%)</label><input id="manager-weight-${key}" class="input" name="weight-${key}" type="number" min="0.01" max="100" step="0.01" value="${manager.weightPercent ?? ''}" required></div><button class="icon-button team-manager-remove" type="button" data-remove-manager aria-label="Amiri kaldır" title="Amiri kaldır">${icon('close')}</button></div>`;
   };
   openDialog(`${row.professionName} · Ekip amirleri`, `<p>Bu atama, pasif kayıtlar dahil ekipteki ${row.employeeCount} çalışana ve sonradan eklenen çalışanlara uygulanır. Oran değişiklikleri mevcut birleşik sonuçları da günceller.</p><div id="team-manager-fields">${(row.managers || []).map(managerRow).join('')}</div><p id="team-manager-total" role="status"></p><p>Bir oran değiştiğinde kalan yüzde diğer amirler arasında orantılı paylaşılır.</p><button class="button secondary" id="add-team-manager" type="button">${icon('plus')}Amir ekle</button>`, async form => {
+    const editorForm = dialogContent.querySelector('#dialog-form');
     const managers = [...dialogContent.querySelectorAll('[data-manager-row]')].map(element=>({managerUserId:Number(form.get(`manager-${element.dataset.managerRow}`)), weightPercent:Number(form.get(`weight-${element.dataset.managerRow}`))}));
     if (new Set(managers.map(x=>x.managerUserId)).size !== managers.length) throw new Error('Aynı amir birden fazla kez seçilemez.');
     if (managers.some(x=>!x.managerUserId || x.weightPercent<=0 || x.weightPercent>100)
       || (managers.length && managers.reduce((sum,x)=>sum+Math.round(x.weightPercent*100),0)!==10000)) throw new Error('Amirleri seçin ve pozitif ağırlıkların toplamını %100 yapın.');
-    if (!managers.length && !confirm('Ekibin tüm amir atamaları kaldırılsın mı?')) throw new Error('Amir atamaları korundu.');
+    if (!managers.length && !await messageBox('Ekibin tüm amir atamaları kaldırılsın mı?', {title:'Amir atamalarını kaldır', confirm:true, confirmText:'Atamaları kaldır', type:'warning'})) return false;
+    if (!editorForm.isConnected || !dialog.open) return false;
     await api(`/api/authorization/team-managers/${row.professionId}`, {method:'PUT', body:JSON.stringify({professionId:row.professionId, managers})});
     state.teamManagers = await api('/api/authorization/team-managers');
     renderAuthorization();
