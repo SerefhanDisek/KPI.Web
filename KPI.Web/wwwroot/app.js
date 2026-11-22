@@ -1065,7 +1065,7 @@ async function deleteEvaluation(id, rows = state.history, table = document.query
   const row = rows.find(x => x.id === id);
   if (!row?.canDelete) return;
   const action = table?.querySelector(`[data-delete-evaluation="${id}"]`);
-  if (!action || !await messageBox(`“${row.employeeName} · ${row.periodName}” değerlendirmesi, KPI puanları ve çalışan yanıtları kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`, {title:'Değerlendirmeyi kalıcı olarak sil', confirm:true, confirmText:'Kalıcı olarak sil', type:'danger'}) || !action.isConnected) return;
+  if (!action || !await messageBox(`“${row.employeeName} · ${row.periodName}” değerlendirmesi ve KPI puanları kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`, {title:'Değerlendirmeyi kalıcı olarak sil', confirm:true, confirmText:'Kalıcı olarak sil', type:'danger'}) || !action.isConnected) return;
   const buttons = [...action.closest('.row-actions').querySelectorAll('button')];
   buttons.forEach(button => button.disabled = true);
   try {
@@ -1083,27 +1083,12 @@ async function approveEvaluation(id){try{await api(`/api/evaluations/${id}/appro
 async function showEvaluationDetail(id, rows = state.history, onBack = null, signal = undefined) {
   try {
     const row = rows.find(x=>x.id===id);
-    const [details, responses] = await Promise.all([api(`/api/evaluations/${id}/details`, {signal}), api(`/api/workflow/evaluations/${id}/responses`, {signal})]);
+    const details = await api(`/api/evaluations/${id}/details`, {signal});
     if (signal?.aborted) return;
     dialog.classList.add('wide');
     dialog.setAttribute('aria-labelledby', 'evaluation-dialog-title');
     dialogContent.innerHTML = `<div class="dialog-head"><h2 id="evaluation-dialog-title" tabindex="-1">${esc(row.employeeName)} · Değerlendirme ayrıntısı</h2><button type="button" class="icon-button" data-close aria-label="Kapat">${icon('close')}</button></div><div class="dialog-body"><p class="manager-dialog-context">Değerlendiren: ${esc(row.evaluatorName||'Sistem')} · ${formatDate(row.evaluationDate)} · ${statusBadge(row.status)}</p><div class="detail-grid"><div class="detail-box"><small>Çalışan</small><strong>${esc(row.employeeName)}</strong></div><div class="detail-box"><small>Dönem</small><strong>${esc(row.periodName)}</strong></div><div class="detail-box"><small>Puan</small><strong>${formatNumber(row.scorePercentage)} / 100</strong></div></div><div class="table-wrap"><table class="table"><thead><tr><th>KPI</th><th>Tür</th><th>Puan</th><th>Not</th></tr></thead><tbody>${details.map(x=>`<tr><td><strong>${esc(x.kpiTitle)}</strong></td><td>${x.isCommon?'Ortak':'Mesleki'}</td><td><span class="score">${x.score || '—'}</span></td><td class="evaluation-note-text">${esc(x.note||'—')}</td></tr>`).join('')}</tbody></table></div>${row.generalNote?`<div class="field" style="margin-top:18px"><label>Genel not</label><div class="detail-box">${esc(row.generalNote)}</div></div>`:''}</div><div class="dialog-foot">${onBack?'<button type="button" class="button secondary" id="back-to-manager">Amirin değerlendirmelerine dön</button>':''}<button type="button" class="button secondary" data-close>Kapat</button></div>`;
     dialogContent.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>dialog.close());
-    const responseSection = document.createElement('section');
-    responseSection.innerHTML = `<h3>Çalışan görüşü</h3><div id="employee-response-list">${employeeResponseList(responses)}</div>${hasPermission(14)&&state.user.employeeId===row.employeeId&&row.status===4?'<form id="employee-response-form"><div class="field"><label>Yanıtınız</label><select class="filter-select" name="decision"><option value="2">Görüş bildir</option><option value="0">Kabul ediyorum</option></select></div><div class="field"><label>Açıklama</label><textarea class="textarea" name="comment" maxlength="2000"></textarea></div><button class="button primary" type="submit">Yanıtı kaydet</button><small>Yanıt geçmişe eklenir; onaylı puanlar değişmez.</small></form>':''}`;
-    dialogContent.querySelector('.dialog-body').append(responseSection);
-    const responseSelections = enhanceSelects(responseSection);
-    dialog.addEventListener('close',()=>responseSelections.abort(),{once:true});
-    const responseForm = responseSection.querySelector('form');
-    if (responseForm) responseForm.onsubmit = async event => {
-      event.preventDefault(); const button = responseForm.querySelector('button'); if (button.disabled) return; button.disabled=true;
-      try {
-        const data = new FormData(responseForm);
-        await api(`/api/workflow/evaluations/${id}/responses`,{method:'POST',body:JSON.stringify({evaluationId:id,decision:Number(data.get('decision')),comment:data.get('comment')})});
-        responseSection.querySelector('#employee-response-list').innerHTML=employeeResponseList(await api(`/api/workflow/evaluations/${id}/responses`));
-        responseForm.reset(); toast('Yanıtınız kaydedildi.');
-      } catch(error) { toast(error.message,'error'); } finally { button.disabled=false; }
-    };
     if (onBack) document.querySelector('#back-to-manager').onclick = onBack;
     if (!dialog.open) {
       dialog.addEventListener('close', () => dialog.removeAttribute('aria-labelledby'), {once:true});
@@ -1113,12 +1098,8 @@ async function showEvaluationDetail(id, rows = state.history, onBack = null, sig
   } catch(error) { if (!signal?.aborted) toast(error.message,'error'); }
 }
 
-const retiredPermissions=new Set([9,13,15,17,18]);
+const retiredPermissions=new Set([9,13,14,15,17,18]);
 const permissionNames=['Gösterge paneli','Değerlendirme oluşturma','Değerlendirme onaylama','Değerlendirme geçmişi','Çalışan yönetimi','Meslek yönetimi','KPI yönetimi','Dönem yönetimi','Hedef yönetimi','Sayfa tasarımcısı','Yetkilendirme yönetimi','İzin takibi · Görüntüle','İzin listesi · Excel yükleme','Denetim kayıtları','Çalışan değerlendirme yanıtı','Değerlendirme görevleri','Onaylı amir sonuçlarını karşılaştırma','Yetkinlik/kıdem yönetimi','Bireysel gelişim yönetimi'];
-
-function employeeResponseList(rows) {
-  return rows.length?rows.map(x=>`<div class="detail-box"><strong>${{0:'Kabul',2:'Görüş'}[x.decision]}</strong><small>${esc(x.userName)} · ${formatDate(x.createdAt)}</small><p>${esc(x.comment||'—')}</p></div>`).join(''):'<p>Henüz çalışan yanıtı yok.</p>';
-}
 
 function managerScores(scores) {
   return `<span class="manager-summary">${scores.map(score => `<span>${score.managerLevel ? `${score.managerLevel}. amir · %${formatNumber(score.weightPercent)} · ` : ''}${esc(score.evaluatorName)}: <strong>%${formatNumber(score.percentage)}</strong>${score.managerLevel ? '' : ' <small>Güncel ağırlıklandırmaya dahil değil</small>'}</span>`).join(' - ')}</span>`;

@@ -4,7 +4,7 @@
 
 - Geçici Kaydet taslağı saklar; Kalıcı Kaydet oluşturma ve onaylama izinleriyle doğrudan onaylar. Yeni bir amir onay zinciri eklenmez.
 - Ekipte istenen sayıda amir aynı çalışan/dönem için bağımsız değerlendirme yapar. Birleşik başarı Yetkilendirme ekranında toplam %100 olarak belirlenen güncel amir ağırlıklarıyla hesaplanır; oran değişiklikleri mevcut sonuçlara da uygulanır, bireysel puanlar korunur.
-- Çalışan görüşü ve kabulü korunur; itiraz süreci kullanıcı isteğiyle kapsamdan çıkarılmıştır.
+- Çalışan görüşü, kabulü ve itirazı kapsam dışıdır. Çalışanların değerlendirmeye yanıt verme arayüzü ve HTTP işlemleri yoktur; önceki kayıtlar korunur.
 - Sayfa tasarımcısı ve buna bağlı low-code geliştirmeleri kullanıcı isteğiyle kaldırılmıştır. Eski sayfa verileri saklanır; menü, tarayıcı akışı ve API erişimi yoktur.
 - E-posta ve Teams entegrasyonları kullanıcı isteğiyle kapsam dışıdır.
 - Değerlendirme Görevleri, Yetkinlik / Kıdem Matrisi ve Denetim Kayıtları ekranları kaldırılmıştır. İzin ekranı yalnızca Excel yükleme ve listeleme içindir.
@@ -17,7 +17,7 @@
 | 1 | Taslak kaydetme ve devam etme | Tamamlandı | Kayıtlı puanlar, notlar, gerçekleşen değerler ve KPI anlık görüntüleri yüklenir. Aynı kayıt güncellenir; eski sekmeler güncel kaydı ezemez. |
 | 2 | Değerlendirme durumları | Mevcut onay akışı doğrulandı ve korundu | Taslak eksik puan kabul eder. Kalıcı kayıt tam puanlama ve iki izinle doğrudan onaylanır. Onaylı kaydı yalnızca değerlendiren kişi düzenleyebilir; kaydetme taslağa döndürüp onay bilgilerini temizler ve yeniden onay gerektiğini belirten uyarı gösterir; kalıcı kayıt dahil her değerlendirmeyi yalnızca değerlendiren kişi geçmiş yetkisiyle silebilir; geçersiz yazma durumları reddedilir. Tarihsel durum değerleri uyumluluk için korunur; yeni paylaşım/onay zinciri eklenmez. |
 | 3 | Amirlerin ayrı değerlendirmesi | Tamamlandı | Çalışan/dönem/değerlendiren birleşimi benzersizdir. Taslak, onay ve Excel aktarımı amire aittir. Geçmiş kayıtlar korunur, dashboard çalışanları mükerrer saymaz. |
-| 4 | Çalışan görüşü ve kabulü | Tamamlandı; itiraz iptal | Yetkili çalışan kendi onaylı değerlendirmesine görüş/kabul ekler. Yanıt geçmişi saklanır; onaylı puanlar ve değerlendirme durumu değişmez. |
+| 4 | Çalışan görüşü ve kabulü | Kullanıcı isteğiyle kapsam dışı | Değerlendirme ayrıntısındaki yanıt bölümü ve okuma/yazma API erişimi kaldırıldı. İzin 14 gizlenir ve yeniden kullanılmaz; eski yanıt kayıtları, puanlar ve değerlendirme durumları korunur. |
 | 5 | Denetim kaydı ve güvenlik | Denetim ekranı kullanıcı isteğiyle kaldırıldı | Denetim ekranı ve liste API erişimi yoktur; önceki veriler ve uygulama iç denetimi korunur. CSRF, güvenlik başlıkları, isteğe bağlı parola değişimi ve üretim başlangıç parolası kuralları devam eder. |
 | 6 | Döngü, görev ve hatırlatma | Kullanıcı isteğiyle kaldırıldı | Değerlendirme görev ekranı, API erişimi ve görev bildirimleri kaldırıldı. Mevcut dönemler ve amir değerlendirmeleri devam eder. |
 | 7 | Onaylı Amir Sonuçları | Karşılaştırma paneli tamamlandı | Erişilebilen onaylı amir sonuçları yan yana gösterilir; ekran ve beş sütunlu Excel raporunda fark sütunu bulunmaz. Birleşik başarı güncel amir etki oranlarıyla hesaplanır; tüm atanmış amirlerin onaylı kaydı gerekir. Değerlendirme anındaki amir sırası saklanır ve bireysel puanlar korunur. |
@@ -30,7 +30,7 @@
 ## Kullanım ve yetkiler
 
 - Yeni ekranlar ayrı izinlerle yönetilir. Sistem yöneticisi erişebilir; mevcut diğer rollere otomatik yetki verilmez.
-- Çalışan görüşü/kabulü için değerlendirme geçmişi ve yanıt izinleri gerekir. Hesabın çalışan kaydıyla ilişkilendirilmesi zorunludur.
+- Çalışan görüşü/kabulü için arayüz ve HTTP erişimi bulunmaz; eski yanıt izni 14 rol düzenleyicisinde gösterilmez.
 - Yetkilendirmede kullanıcı hesapları, rol yetkileri ve ekip amirleri yönetilir. Ekip ataması mevcut tüm çalışanlara ve sonradan eklenen/ekibe taşınan çalışanlara uygulanır; çalışan-hesap bağlantısı gösterilmez. Parola değişikliği kullanıcı menüsünden yapılır; yeni hesap oluştururken ilk giriş parolası belirlenir.
 - Yeni şema geçişleri uygulama açılışındaki mevcut migration akışıyla uygulanır. Eski değerlendirmeler ve eski sayfa verileri silinmez.
 
@@ -38,7 +38,7 @@
 
 - Eksik taslak, tekrar kaydetme, yeniden açma, eski sekme ve örtüşen veritabanı yazmaları.
 - Aynı çalışan/dönem için bağımsız amir kayıtları; amir bazlı Excel aktarımı ve erişim sınırları.
-- Çalışan görüşü/kabulü, itirazın reddedilmesi ve onaylı içeriğin korunması.
+- Çalışan yanıtı bölümü ve API erişiminin kaldırılması, eski kayıtların ve onaylı içeriğin korunması.
 - İç denetim aktörü, parola malzemesinin hariç tutulması ve kayıt değişikliğinin engellenmesi.
 - Kaldırılan bireysel gelişim ekranı ve API işlemlerinin erişilememesi, eski kayıtların korunması ve kullanıcı düzenlemede çalışan bağlantısı/parolanın değişmemesi.
 - CSRF ve kimliğe bağlı token kontrolü, güvenlik başlıkları, gerçek tarayıcıda CSP, doğrudan giriş ve isteğe bağlı parola değişimi.
